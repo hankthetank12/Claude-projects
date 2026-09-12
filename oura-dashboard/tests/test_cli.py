@@ -13,7 +13,9 @@ from oura_dashboard.config import Config
 def env(monkeypatch, tmp_path):
     """A clean environment pointing data and output at a temp directory."""
     for key in ("OURA_TOKEN", "MAIL_TO", "MAIL_FROM", "GMAIL_APP_PASSWORD",
-                "OURA_SLEEP_NEED_HOURS", "OURA_SANDBOX", "OURA_TIMEZONE"):
+                "OURA_SLEEP_NEED_HOURS", "OURA_SANDBOX", "OURA_TIMEZONE",
+                "OURA_CLIENT_ID", "OURA_CLIENT_SECRET", "OURA_REFRESH_TOKEN",
+                "GITHUB_ACTIONS", "GITHUB_REPOSITORY", "GH_TOKEN"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr("oura_dashboard.config.load_dotenv", lambda path=None: None)
     monkeypatch.setenv("OURA_DATA_DIR", str(tmp_path / "data"))
@@ -67,10 +69,14 @@ def test_demo_builds_a_dashboard_and_a_brief(env, capsys):
     assert "morning brief" in capsys.readouterr().out
 
 
-def test_sync_without_a_token_exits_with_guidance(env):
+def test_sync_without_credentials_points_at_oauth(env):
+    """Personal access tokens are deprecated, so the guidance must not suggest one."""
     with pytest.raises(SystemExit) as exc:
         cli.main(["sync"])
-    assert "OURA_TOKEN" in str(exc.value)
+    message = str(exc.value)
+    assert "OURA_CLIENT_ID" in message
+    assert "authorize" in message
+    assert "personal-access-tokens" not in message
 
 
 def test_build_without_history_tells_you_to_sync(env):
@@ -192,3 +198,161 @@ def test_sample_data_is_deterministic_and_well_shaped():
         assert row.total_sleep_h and 3 < row.total_sleep_h < 12
         assert row.sleep_score and 0 < row.sleep_score <= 100
         assert row.steps is not None and row.steps > 0
+
+
+# -- OAuth in the daily job -------------------------------------------
+def test_morning_in_actions_rotates_the_secret(env, monkeypatch, capsys):
+    """The whole scheduled path: refresh, write the new token back, send."""
+    import time as _time
+
+    from oura_dashboard import auth, gh_secrets
+
+    monkeypatch.setenv("OURA_CLIENT_ID", "cid")
+    monkeypatch.setenv("OURA_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("OURA_REFRESH_TOKEN", "rt-old")
+    monkeypatch.setenv("MAIL_TO", "a@b.c")
+    monkeypatch.setenv("MAIL_FROM", "d@e.f")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "pw")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "me/repo")
+
+    spent = {}
+
+    def fake_refresh(*, client_id, client_secret, refresh_token):
+        spent["used"] = refresh_token
+        return auth.TokenSet("at-new", "rt-new", _time.time() + 86400)
+
+    written = {}
+    monkeypatch.setattr("oura_dashboard.auth.refresh_tokens", fake_refresh)
+    monkeypatch.setattr(
+        gh_secrets, "set_secret",
+        lambda name, value, repository=None: written.update({name: value}),
+    )
+
+    tokens_seen = {}
+
+    def fake_fetch_all(self, start, end, endpoints=None):
+        tokens_seen["token"] = self.token
+        return sample.generate(60)
+
+    monkeypatch.setattr("oura_dashboard.client.OuraClient.fetch_all", fake_fetch_all)
+    monkeypatch.setattr("oura_dashboard.mailer.send", lambda *a, **k: None)
+
+    assert cli.main(["morning"]) == 0
+    assert spent["used"] == "rt-old"
+    assert tokens_seen["token"] == "at-new"
+    assert written == {"OURA_REFRESH_TOKEN": "rt-new"}
+
+
+def test_morning_goes_red_when_the_rotation_cannot_be_saved(env, monkeypatch, capsys):
+    """The brief still sends, but the run must fail so the user notices."""
+    import time as _time
+
+    from oura_dashboard import auth, gh_secrets
+
+    monkeypatch.setenv("OURA_CLIENT_ID", "cid")
+    monkeypatch.setenv("OURA_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("OURA_REFRESH_TOKEN", "rt-old")
+    monkeypatch.setenv("MAIL_TO", "a@b.c")
+    monkeypatch.setenv("MAIL_FROM", "d@e.f")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "pw")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "me/repo")
+
+    monkeypatch.setattr(
+        "oura_dashboard.auth.refresh_tokens",
+        lambda **kw: auth.TokenSet("at-new", "rt-new", _time.time() + 86400),
+    )
+
+    def refuse(name, value, repository=None):
+        raise gh_secrets.SecretWriteError("GH_TOKEN is not set")
+
+    monkeypatch.setattr(gh_secrets, "set_secret", refuse)
+    monkeypatch.setattr(
+        "oura_dashboard.client.OuraClient.fetch_all",
+        lambda self, start, end, endpoints=None: sample.generate(60),
+    )
+    sent = {}
+    monkeypatch.setattr(
+        "oura_dashboard.mailer.send",
+        lambda message, **kw: sent.update({
+            "subject": message["Subject"],
+            "body": message.get_body(("plain",)).get_content(),
+        }),
+    )
+
+    assert cli.main(["morning"]) == 1
+    assert "action needed" in sent["subject"]
+    assert "GH_TOKEN is not set" in sent["body"]
+    assert "GH_TOKEN" in capsys.readouterr().err
+
+
+def test_a_spent_refresh_token_exits_with_reauthorize_guidance(env, monkeypatch, capsys):
+    from oura_dashboard import auth
+
+    monkeypatch.setenv("OURA_CLIENT_ID", "cid")
+    monkeypatch.setenv("OURA_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("OURA_REFRESH_TOKEN", "spent")
+
+    def dead(**kwargs):
+        raise auth.ReauthorizationRequired("Oura rejected the refresh token")
+
+    monkeypatch.setattr("oura_dashboard.auth.refresh_tokens", dead)
+    assert cli.main(["sync"]) == 1
+    assert "refresh token" in capsys.readouterr().err
+
+
+def test_a_personal_token_still_works_for_now(env, monkeypatch, capsys):
+    """Existing PATs keep working even though new ones cannot be created."""
+    monkeypatch.setenv("OURA_TOKEN", "pat-legacy")
+
+    def boom(**kwargs):
+        raise AssertionError("a PAT must not hit the OAuth endpoint")
+
+    monkeypatch.setattr("oura_dashboard.auth.refresh_tokens", boom)
+    seen = {}
+
+    def fake_fetch_all(self, start, end, endpoints=None):
+        seen["token"] = self.token
+        return sample.generate(30)
+
+    monkeypatch.setattr("oura_dashboard.client.OuraClient.fetch_all", fake_fetch_all)
+    assert cli.main(["sync"]) == 0
+    assert seen["token"] == "pat-legacy"
+
+
+def test_authorize_needs_client_credentials_first(env):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["authorize"])
+    assert "OURA_CLIENT_ID" in str(exc.value)
+
+
+def test_authorize_saves_the_token_set_and_prints_the_secret(env, monkeypatch, capsys):
+    import time as _time
+
+    from oura_dashboard import auth, authorize as authorize_module
+
+    monkeypatch.setenv("OURA_CLIENT_ID", "cid")
+    monkeypatch.setenv("OURA_CLIENT_SECRET", "sec")
+    monkeypatch.setattr(
+        authorize_module, "run_flow",
+        lambda **kw: auth.TokenSet("at", "rt-fresh", _time.time() + 3600, "daily"),
+    )
+    assert cli.main(["authorize"]) == 0
+
+    output = capsys.readouterr().out
+    assert "rt-fresh" in output
+    assert "OURA_REFRESH_TOKEN" in output
+    assert "single use" in output
+
+    saved = auth.TokenStore(env / "data" / ".oauth.json").load()
+    assert saved is not None and saved.refresh_token == "rt-fresh"
+
+
+def test_the_local_token_file_is_not_inside_the_history(env, monkeypatch):
+    """Credentials must never end up in the committed history file."""
+    from oura_dashboard.config import Config
+
+    config = Config.from_env()
+    assert config.token_file.name == ".oauth.json"
+    assert config.token_file != config.data_dir / "history.json"

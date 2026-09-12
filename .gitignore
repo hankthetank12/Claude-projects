@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
+.oauth.json
+oura-dashboard/data/.oauth.json
 *.egg-info/
 .pytest_cache/
 .ruff_cache/

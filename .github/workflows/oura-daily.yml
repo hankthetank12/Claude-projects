@@ -31,8 +31,6 @@ defaults:
 jobs:
   brief:
     runs-on: ubuntu-latest
-    outputs:
-      pages_url: ${{ steps.pages.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,18 +43,38 @@ jobs:
         run: |
           echo "url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch the latest Oura data
+      # One step for the whole job: Oura refresh tokens are single use, so the
+      # replacement has to be written back to the OURA_REFRESH_TOKEN secret
+      # within the same process that spent the old one. If that write fails the
+      # brief still goes out, carrying a notice, and the run exits non-zero.
+      - name: Sync, rebuild and send the morning brief
+        id: morning
+        # Kept non-fatal here so the history commit and the dashboard upload
+        # below still happen; the final step re-fails the job.
+        continue-on-error: true
         env:
+          OURA_CLIENT_ID: ${{ secrets.OURA_CLIENT_ID }}
+          OURA_CLIENT_SECRET: ${{ secrets.OURA_CLIENT_SECRET }}
+          OURA_REFRESH_TOKEN: ${{ secrets.OURA_REFRESH_TOKEN }}
           OURA_TOKEN: ${{ secrets.OURA_TOKEN }}
-        run: python -m oura_dashboard --verbose sync --days "${{ inputs.days || '120' }}"
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          OURA_SLEEP_NEED_HOURS: ${{ vars.OURA_SLEEP_NEED_HOURS }}
+          # Needs "Secrets: write" on this repository; the default
+          # GITHUB_TOKEN cannot update Actions secrets.
+          GH_TOKEN: ${{ secrets.OURA_SECRETS_PAT }}
+        run: |
+          python -m oura_dashboard --verbose morning \
+            --days "${{ inputs.days || '120' }}" \
+            --url "${{ steps.pages.outputs.url }}" \
+            --attach-dashboard \
+            ${{ inputs.skip_send == true && '--skip-send' || '' }}
         working-directory: oura-dashboard/src
         # src/ is on the path so the package imports without installing.
 
-      - name: Rebuild the dashboard
-        run: python -m oura_dashboard --verbose build
-        working-directory: oura-dashboard/src
-
       - name: Commit the updated history
+        if: always()
         run: |
           cd "$GITHUB_WORKSPACE"
           if [ -z "$(git status --porcelain oura-dashboard/data)" ]; then
@@ -80,22 +98,21 @@ jobs:
           exit 1
 
       - name: Upload the dashboard for publishing
+        if: always() && hashFiles('oura-dashboard/out/index.html') != ''
+        continue-on-error: true
         uses: actions/upload-pages-artifact@v3
         with:
           path: oura-dashboard/out
 
-      - name: Send the morning brief
-        if: ${{ inputs.skip_send != true }}
-        env:
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          OURA_SLEEP_NEED_HOURS: ${{ vars.OURA_SLEEP_NEED_HOURS }}
+      # Surface the real outcome now that the durable work is done. A red run
+      # here almost always means the rotated refresh token could not be saved,
+      # and the emailed brief says exactly what to fix.
+      - name: Fail if the brief did not complete
+        if: steps.morning.outcome == 'failure'
         run: |
-          python -m oura_dashboard --verbose send \
-            --url "${{ steps.pages.outputs.url }}" \
-            --attach-dashboard
-        working-directory: oura-dashboard/src
+          echo "::error::The morning job reported a problem — check the brief for details." >&2
+          exit 1
+
 
   # Publishing is best-effort: if Pages is not enabled for the repository this
   # job fails on its own without costing you the morning email.

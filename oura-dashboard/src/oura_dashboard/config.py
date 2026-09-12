@@ -30,7 +30,10 @@ def load_dotenv(path: Path | None = None) -> None:
 
 @dataclass(frozen=True)
 class Config:
-    token: str | None
+    token: str | None            # legacy personal access token (deprecated by Oura)
+    client_id: str | None
+    client_secret: str | None
+    refresh_token: str | None
     timezone: str
     sleep_need_hours: float
     mail_to: str | None
@@ -53,6 +56,9 @@ class Config:
 
         return cls(
             token=os.environ.get("OURA_TOKEN") or None,
+            client_id=os.environ.get("OURA_CLIENT_ID") or None,
+            client_secret=os.environ.get("OURA_CLIENT_SECRET") or None,
+            refresh_token=os.environ.get("OURA_REFRESH_TOKEN") or None,
             timezone=os.environ.get("OURA_TIMEZONE", "UTC").strip() or "UTC",
             sleep_need_hours=_float("OURA_SLEEP_NEED_HOURS", 8.0),
             mail_to=os.environ.get("MAIL_TO") or None,
@@ -66,3 +72,12 @@ class Config:
     @property
     def can_send_mail(self) -> bool:
         return bool(self.mail_to and self.mail_from and self.gmail_app_password)
+
+    @property
+    def token_file(self) -> Path:
+        """Where the rotated OAuth token set is cached. Never commit this."""
+        return self.data_dir / ".oauth.json"
+
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self.token or (self.client_id and self.client_secret))

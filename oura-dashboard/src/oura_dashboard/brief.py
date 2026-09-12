@@ -36,6 +36,14 @@ def subject(analysis: Analysis, suggestions: Sequence[Suggestion]) -> str:
     return f"{prefix} — {lead}"
 
 
+def subject_with_notices(
+    analysis: Analysis, suggestions: Sequence[Suggestion], notices: Sequence[str]
+) -> str:
+    """Same subject, flagged when the run needs the user to intervene."""
+    base = subject(analysis, suggestions)
+    return f"[action needed] {base}" if notices else base
+
+
 # The email stat row is only ~600px wide, so it uses abbreviated labels.
 SHORT_LABELS = {
     "Sleep score": "Sleep",
@@ -79,12 +87,18 @@ def render_text(
     suggestions: Sequence[Suggestion],
     *,
     dashboard_url: str | None = None,
+    notices: Sequence[str] = (),
 ) -> str:
     lines: list[str] = []
     day = analysis.today.day if analysis.today else date.today()
     lines.append(f"Your Oura morning brief — {day.strftime('%A %d %B %Y')}")
     lines.append("=" * 52)
     lines.append("")
+
+    for notice in notices:
+        lines.append(f"!! NEEDS ATTENTION: {notice}")
+    if notices:
+        lines.append("")
 
     stats = _headline_stats(analysis)
     if stats:
@@ -128,6 +142,7 @@ def render_html(
     suggestions: Sequence[Suggestion],
     *,
     dashboard_url: str | None = None,
+    notices: Sequence[str] = (),
 ) -> str:
     day = analysis.today.day if analysis.today else date.today()
     stats = _headline_stats(analysis)
@@ -145,6 +160,15 @@ def render_html(
         </table>"""
         if stats
         else ""
+    )
+
+    notice_block = "".join(
+        f"""<div style="border:1px solid #d03b3b;border-left-width:3px;border-radius:8px;
+                    padding:12px 14px;margin:0 0 16px;background:#fcf4f4">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#d03b3b;margin-bottom:4px">Needs attention</div>
+          <p style="margin:0;font-size:13px;color:#0b0b0b">{html.escape(notice)}</p>
+        </div>"""
+        for notice in notices
     )
 
     blocks: list[str] = []
@@ -195,6 +219,7 @@ def render_html(
     <h1 style="font-size:22px;line-height:1.25;margin:0 0 22px;font-weight:600">
       {html.escape(day.strftime("%A %d %B %Y"))}</h1>
 
+    {notice_block}
     {stats_block}
     {"".join(blocks)}
     {link}

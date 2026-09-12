@@ -37,23 +37,36 @@ cd oura-dashboard/src && python -m oura_dashboard demo
 
 ## Setup
 
-### 1. Get an Oura token
+### 1. Register an Oura application
 
-Create a **personal access token** at
-<https://cloud.ouraring.com/personal-access-tokens>. It is tied to your own
-account and needs no OAuth app.
+Oura **deprecated personal access tokens** — new ones can no longer be created,
+and existing ones will stop working — so authentication goes through OAuth2.
+
+Create an application at <https://cloud.ouraring.com/oauth/applications> and
+note its **client ID** and **client secret**. Add this exact redirect URI to
+the application:
+
+```
+http://localhost:8731/callback
+```
+
+Oura matches redirect URIs exactly, so if you use a different port (via
+`authorize --port`) register that one instead.
 
 ### 2. Local configuration
 
 ```bash
 cd oura-dashboard
 cp .env.example .env
-# then fill in OURA_TOKEN (and the mail settings if sending locally)
+# fill in OURA_CLIENT_ID and OURA_CLIENT_SECRET
 ```
 
 | Variable | Purpose |
 |---|---|
-| `OURA_TOKEN` | Your personal access token. Required. |
+| `OURA_CLIENT_ID` | From your Oura application. Required. |
+| `OURA_CLIENT_SECRET` | From your Oura application. Required. |
+| `OURA_REFRESH_TOKEN` | Usually left blank locally — `authorize` caches it in `data/.oauth.json`. |
+| `OURA_TOKEN` | A legacy personal access token. Still honoured if you have one, and takes precedence. |
 | `MAIL_TO` | Where the brief is sent. |
 | `MAIL_FROM` | The Gmail address it is sent from. |
 | `GMAIL_APP_PASSWORD` | A Gmail **App Password** (see below). |
@@ -61,13 +74,26 @@ cp .env.example .env
 | `OURA_TIMEZONE` | Informational; Oura returns local timestamps. |
 | `OURA_SANDBOX` | `1` to hit Oura's sandbox (fake data, any token works). |
 
-### 3. Gmail App Password
+### 3. Grant access
+
+```bash
+python -m oura_dashboard authorize
+```
+
+This opens your browser, captures the redirect on `localhost`, exchanges the
+code, and saves the token set to `data/.oauth.json` (owner-readable only, and
+gitignored). It then prints the refresh token to paste into GitHub.
+
+Add `--no-browser` on a headless machine to print the URL instead, or
+`--port N` to use a different callback port.
+
+### 4. Gmail App Password
 
 Gmail blocks normal sign-in over SMTP, so the brief needs an App Password —
 a 16-character code, not your account password. Create one at
 <https://myaccount.google.com/apppasswords> (requires 2-Step Verification).
 
-### 4. First sync
+### 5. First sync
 
 ```bash
 python -m oura_dashboard sync --days 120   # pulls history into data/history.json
@@ -76,23 +102,61 @@ python -m oura_dashboard brief             # prints the brief without sending
 python -m oura_dashboard send --dry-run    # same, in send format
 ```
 
+## About those single-use refresh tokens
+
+This is the one genuinely awkward part of Oura's OAuth2, and it shapes the
+setup, so it is worth understanding.
+
+> "The refresh token is single-use, meaning it is invalidated after being used."
+
+Every exchange kills the token you just spent and returns a replacement. Two
+consequences:
+
+- **The replacement must be saved or the chain breaks.** Locally that is
+  `data/.oauth.json`. In GitHub Actions there is no disk that survives the run,
+  so the job writes the new token back into the `OURA_REFRESH_TOKEN` secret
+  itself, using `gh secret set`. That needs a GitHub PAT with secrets write
+  access (step 3 below) because the default `GITHUB_TOKEN` cannot update secrets.
+- **Do not share one token between two places.** If your laptop and the daily
+  job hold the same refresh token, whichever runs second finds it already spent
+  and fails. Run `authorize` twice — once for each — or let the workflow own it
+  and use `demo`/the committed history locally.
+
+To reduce churn the local run caches the access token and only refreshes once
+it has actually expired, so a burst of commands spends one token, not five.
+
+If the chain does break, the brief says so and the fix is always the same:
+re-run `oura-dashboard authorize` and update the secret.
+
 ## Daily automation (GitHub Actions)
 
-`.github/workflows/oura-daily.yml` runs every morning: it syncs, commits the
-updated history, rebuilds the dashboard, publishes it to GitHub Pages, and
-emails you the brief.
+`.github/workflows/oura-daily.yml` runs every morning: it syncs, rotates the
+refresh token, commits the updated history, rebuilds the dashboard, publishes
+it to GitHub Pages, and emails you the brief.
 
-Add these under **Settings → Secrets and variables → Actions → Secrets**:
+**1. Add the Oura and mail secrets** under
+**Settings → Secrets and variables → Actions → Secrets**:
 
 | Secret | Value |
 |---|---|
-| `OURA_TOKEN` | Your Oura personal access token |
+| `OURA_CLIENT_ID` | Your Oura application's client ID |
+| `OURA_CLIENT_SECRET` | Your Oura application's client secret |
+| `OURA_REFRESH_TOKEN` | The refresh token `authorize` printed |
 | `MAIL_TO` | Where to send the brief |
 | `MAIL_FROM` | Your Gmail address |
 | `GMAIL_APP_PASSWORD` | The 16-character App Password |
 
-Optionally add a **variable** `OURA_SLEEP_NEED_HOURS` if 8 hours is not your
-target.
+**2. Optionally** add a **variable** `OURA_SLEEP_NEED_HOURS` if 8 hours is not
+your target.
+
+**3. Add a PAT so the job can rotate the token.** Create a
+[fine-grained token](https://github.com/settings/personal-access-tokens/new)
+scoped to **this repository only**, with **Secrets: Read and write**
+permission, and add it as the secret `OURA_SECRETS_PAT`.
+
+Without it the job still sends today's brief, but it arrives with an
+`[action needed]` subject explaining that the rotated token could not be
+saved, and the workflow run goes red.
 
 **Changing the time.** The cron is UTC:
 
@@ -112,6 +176,10 @@ brief.
 
 Run it by hand any time from the **Actions** tab (`Run workflow`), optionally
 with "Sync and build only" ticked to skip the email.
+
+**Scopes requested.** `personal`, `daily`, `heartrate`, `workout`, `tag`,
+`session`, `spo2Daily` — `daily` covers all the `daily_*` documents (sleep,
+readiness, activity, stress, resilience, cardiovascular age).
 
 ## What gets tracked
 
@@ -155,6 +223,7 @@ These are pattern observations from your own data, not medical advice.
 
 | Command | What it does |
 |---|---|
+| `authorize [--port N] [--no-browser]` | Grant access in the browser, save a refresh token |
 | `sync [--days N]` | Fetch from the API and upsert into `data/history.json` |
 | `build` | Regenerate `out/index.html` |
 | `brief [--html] [--url URL]` | Print the brief without sending |
@@ -171,7 +240,7 @@ cd oura-dashboard
 python -m pytest -q
 ```
 
-119 tests, no network access and no credentials required — the API is faked at
+166 tests, no network access and no credentials required — the API is faked at
 the client boundary and the rules are driven by constructed histories.
 
 ## Notes
@@ -183,6 +252,9 @@ the client boundary and the rules are driven by constructed histories.
   exponential backoff.
 - **`vO2_max`** really is spelled with a capital O in the API path —
   `vo2_max` returns 404.
+- **Credentials never touch the repo.** `data/.oauth.json` is gitignored and
+  written `0600`; the refresh token reaches `gh` on stdin, so it never appears
+  in a process list or a workflow log.
 - **Partial data is normal.** Today's documents appear as the ring syncs, and
   some endpoints stay empty depending on firmware and subscription. A failing
   endpoint is logged and skipped rather than sinking the run.

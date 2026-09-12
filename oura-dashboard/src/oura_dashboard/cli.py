@@ -15,7 +15,10 @@ import logging
 import sys
 from pathlib import Path
 
-from . import __version__, analysis, brief, client, dashboard, mailer, metrics, sample, store, suggestions
+from . import (
+    __version__, analysis, auth, authorize, brief, client, dashboard, gh_secrets,
+    mailer, metrics, sample, store, suggestions,
+)
 from .config import Config
 
 log = logging.getLogger("oura_dashboard")
@@ -23,6 +26,39 @@ log = logging.getLogger("oura_dashboard")
 
 def _history_path(config: Config) -> Path:
     return config.data_dir / "history.json"
+
+
+def _credentials(config: Config) -> auth.Credentials:
+    """Assemble how this run should get an access token, and where to save one.
+
+    In GitHub Actions there is no filesystem that survives the run, so a
+    rotated refresh token has to go back into the repository secret; locally
+    the token file is enough.
+    """
+    credentials = auth.Credentials(
+        personal_token=config.token,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+        refresh_token=config.refresh_token,
+        store=auth.TokenStore(config.token_file),
+    )
+
+    if gh_secrets.in_github_actions():
+        def persist(tokens: auth.TokenSet) -> None:
+            if not tokens.refresh_token:
+                return
+            try:
+                gh_secrets.set_secret("OURA_REFRESH_TOKEN", tokens.refresh_token)
+            except gh_secrets.SecretWriteError as exc:
+                raise gh_secrets.SecretWriteError(str(exc)) from exc
+
+        credentials.on_rotate = persist
+
+    return credentials
+
+
+def _api(config: Config, credentials: auth.Credentials) -> client.OuraClient:
+    return client.OuraClient(credentials.access_token(), sandbox=config.sandbox)
 
 
 def _load(config: Config) -> tuple[store.History, analysis.Analysis, list[suggestions.Suggestion]]:
@@ -37,14 +73,16 @@ def _load(config: Config) -> tuple[store.History, analysis.Analysis, list[sugges
     return history, result, suggestions.generate(result)
 
 
-def _sync(config: Config, days: int) -> store.History:
-    if not config.token:
+def _sync(config: Config, days: int, credentials: auth.Credentials | None = None) -> store.History:
+    if not config.has_credentials:
         raise SystemExit(
-            "OURA_TOKEN is not set. Create a personal access token at "
-            "https://cloud.ouraring.com/personal-access-tokens and put it in "
-            ".env or the environment."
+            "No Oura credentials. Personal access tokens are deprecated and can "
+            "no longer be created, so register an application at "
+            f"{auth.APPLICATIONS_URL}, set OURA_CLIENT_ID and OURA_CLIENT_SECRET, "
+            "then run `oura-dashboard authorize`."
         )
-    api = client.OuraClient(config.token, sandbox=config.sandbox)
+    credentials = credentials if credentials is not None else _credentials(config)
+    api = _api(config, credentials)
     start, end = client.default_window(days)
     log.info("fetching %s .. %s", start, end)
     fetched = api.fetch_all(start, end)
@@ -74,11 +112,17 @@ def _send(
     dashboard_url: str | None,
     dry_run: bool,
     attach_dashboard: bool = False,
+    notices: list[str] | None = None,
 ) -> None:
+    notices = notices or []
     _, result, found = _load(config)
-    subject = brief.subject(result, found)
-    text_body = brief.render_text(result, found, dashboard_url=dashboard_url)
-    html_body = brief.render_html(result, found, dashboard_url=dashboard_url)
+    subject = brief.subject_with_notices(result, found, notices)
+    text_body = brief.render_text(
+        result, found, dashboard_url=dashboard_url, notices=notices
+    )
+    html_body = brief.render_html(
+        result, found, dashboard_url=dashboard_url, notices=notices
+    )
 
     if dry_run or not config.can_send_mail:
         if not dry_run:
@@ -118,6 +162,39 @@ def _send(
         password=config.gmail_app_password or "",
     )
     print(f"Morning brief sent to {config.mail_to}: {subject}")
+
+
+def _authorize(config: Config, port: int, no_browser: bool) -> None:
+    if not (config.client_id and config.client_secret):
+        raise SystemExit(
+            "Set OURA_CLIENT_ID and OURA_CLIENT_SECRET first. Register an "
+            f"application at {auth.APPLICATIONS_URL} — add "
+            f"http://localhost:{port}/callback to its redirect URIs."
+        )
+
+    tokens = authorize.run_flow(
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+        port=port,
+        open_browser=not no_browser,
+    )
+
+    store_ = auth.TokenStore(config.token_file)
+    store_.save(tokens)
+
+    print(f"\nAuthorized. Token set saved to {config.token_file}")
+    if tokens.scope:
+        print(f"Granted scopes: {tokens.scope}")
+    print(
+        "\nFor the daily GitHub Actions job, set this as the OURA_REFRESH_TOKEN "
+        "secret:\n"
+    )
+    print(f"  {tokens.refresh_token}\n")
+    print(
+        "Oura refresh tokens are single use. The workflow rotates this secret "
+        "itself after every run, so do not reuse this value locally as well — "
+        "run `authorize` again if you need a separate local token."
+    )
 
 
 def _demo(config: Config, days: int) -> None:
@@ -186,6 +263,17 @@ def main(argv: list[str] | None = None) -> int:
         help="attach the built dashboard HTML to the email",
     )
 
+    p_auth = sub.add_parser(
+        "authorize", help="grant access in the browser and save a refresh token"
+    )
+    p_auth.add_argument(
+        "--port", type=int, default=authorize.DEFAULT_PORT,
+        help=f"local callback port, must match your app's redirect URI (default {authorize.DEFAULT_PORT})",
+    )
+    p_auth.add_argument(
+        "--no-browser", action="store_true", help="print the URL instead of opening it"
+    )
+
     p_demo = sub.add_parser("demo", help="build from synthetic sample data")
     p_demo.add_argument("--days", type=int, default=120)
 
@@ -208,16 +296,32 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Subject: {brief.subject(result, found)}\n")
                 print(brief.render_text(result, found, dashboard_url=args.url))
+        elif args.command == "authorize":
+            _authorize(config, args.port, args.no_browser)
         elif args.command == "send":
             _send(config, args.url, args.dry_run, args.attach_dashboard)
         elif args.command == "morning":
-            _sync(config, args.days)
+            # One credentials object for the whole job, so a rotation that
+            # happens during the sync is reported in the email that follows.
+            credentials = _credentials(config)
+            _sync(config, args.days, credentials)
             _build(config)
             if not args.skip_send:
-                _send(config, args.url, False, args.attach_dashboard)
+                _send(config, args.url, False, args.attach_dashboard, credentials.notices)
+            for notice in credentials.notices:
+                print(f"error: {notice}", file=sys.stderr)
+            if credentials.notices:
+                # The brief went out, but tomorrow's run will not work until
+                # this is fixed, so the workflow run must go red.
+                return 1
         elif args.command == "demo":
             _demo(config, args.days)
-    except (client.OuraError, mailer.MailError) as exc:
+    except (
+        client.OuraError,
+        mailer.MailError,
+        auth.OAuthError,
+        gh_secrets.SecretWriteError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
