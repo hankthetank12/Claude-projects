@@ -220,3 +220,15 @@ def test_auth_failure_explains_the_app_password(monkeypatch):
         assert "App Password" in str(exc)
     else:
         raise AssertionError("expected MailError")
+
+
+def test_banner_is_rendered_and_escaped_when_given():
+    result, found = built()
+    page = dashboard.render(result, found, banner="Sample data <b>only</b>")
+    assert 'class="banner"' in page
+    assert "Sample data &lt;b&gt;only&lt;/b&gt;" in page
+
+
+def test_no_banner_element_without_a_banner():
+    result, found = built()
+    assert 'class="banner"' not in dashboard.render(result, found)

@@ -229,6 +229,7 @@ def render(
     suggestions: Sequence[Suggestion],
     *,
     title: str = "Oura dashboard",
+    banner: str | None = None,
 ) -> str:
     rows = analysis.rows
     today = analysis.today
@@ -256,6 +257,10 @@ def render(
     if consistency is not None:
         summary_bits.append(f"bedtime varies ±{consistency:.0f} min")
 
+    banner_html = ""
+    if banner:
+        banner_html = f'  <p class="banner">{html.escape(banner)}</p>\n'
+
     focus_html = ""
     if lead is not None:
         focus_html = f"""        <div class="focus-body">
@@ -278,7 +283,7 @@ def render(
 {css}
 </style>
 <div class="wrap">
-  <header>
+{banner_html}  <header>
     <p class="eyebrow">Oura · morning dashboard</p>
     <h1>{html.escape(latest_day)}</h1>
     <p class="sub">{html.escape(" · ".join(summary_bits))}</p>
@@ -330,7 +335,10 @@ def write(
     path: Path,
     *,
     title: str = "Oura dashboard",
+    banner: str | None = None,
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render(analysis, suggestions, title=title), encoding="utf-8")
+    path.write_text(
+        render(analysis, suggestions, title=title, banner=banner), encoding="utf-8"
+    )
     return path

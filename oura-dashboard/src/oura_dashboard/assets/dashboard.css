@@ -83,6 +83,18 @@ body {
 
 .wrap { max-width: 1180px; margin: 0 auto; }
 
+/* A standing notice, e.g. marking a page built from sample data. */
+.banner {
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 9px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 /* -- header --------------------------------------------------------- */
 header { margin-bottom: 24px; }
 .eyebrow {

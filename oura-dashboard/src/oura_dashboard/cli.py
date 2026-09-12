@@ -129,7 +129,17 @@ def _demo(config: Config, days: int) -> None:
 
     config.out_dir.mkdir(parents=True, exist_ok=True)
     target = config.out_dir / "index.html"
-    dashboard.write(result, found, target, title="Oura dashboard (sample data)")
+    dashboard.write(
+        result,
+        found,
+        target,
+        title="Oura Morning Readout",
+        banner=(
+            "Sample data — this page is built from synthetic readings to show the "
+            "layout, not from a real Oura account. Run `sync` with your own token "
+            "for the real thing."
+        ),
+    )
     brief_path = config.out_dir / "brief.html"
     brief_path.write_text(brief.render_html(result, found), encoding="utf-8")
 
