@@ -46,6 +46,30 @@ cd whole-foods-agent/src && python -m whole_foods_agent demo
 
 ## Loading real history
 
+### An Amazon account export (best source)
+
+The account holder requests it at **Your Account -> Data and Privacy ->
+Request My Data -> Your Orders**. Amazon emails a download link, usually within
+a day. Unzip it and point the tool at the folder:
+
+```bash
+python -m whole_foods_agent import ~/Downloads/Your\ Orders/
+```
+
+This is the fullest source, for three reasons:
+
+- it itemises **delivery orders**, which the confirmation emails never do;
+- it is not capped at twenty lines the way a receipt email is;
+- it records an **ASIN** per line, so the order sheet links straight to the
+  product instead of to a search.
+
+Only Whole Foods and Amazon Fresh rows are kept; the rest of the account's
+shopping is ignored. Pass `--all-stores` to keep everything.
+
+Column headings differ between export vintages, so columns are matched by
+alias rather than position; a file missing something essential says which
+heading it could not find.
+
 ### Saved receipt emails (no credentials)
 
 Save the "Your Whole Foods Market Receipt" emails as `.eml` or `.html` and:
@@ -101,24 +125,61 @@ Two guards keep the list honest:
 Fees and container deposits are stripped out; they are on every receipt and are
 not shopping.
 
-## What it does not do
+## Getting it into a cart
 
-**It does not place the order, and it does not fill a cart by itself.**
+Two back ends, behind one seam (`CartAdapter` in `cart.py`).
 
-Amazon publishes no customer-facing API for Whole Foods order history or the
-grocery cart. The only way to add items automatically would be to drive a
-signed-in browser session with real account credentials, which breaches
-Amazon's Conditions of Use, puts the account at risk, and breaks whenever the
-page changes. There is a further problem specific to groceries: order history
-records a product *name*, never an identifier, and "Organic Sweet Onion"
-matches dozens of listings — a wrong match becomes a real purchase.
+### Links (default)
 
-So the hand-off is deliberately one tap per item. `cart.py` defines the seam
-(`CartAdapter`); `DeepLinkCart` is the working implementation, and `BrowserCart`
-documents the contract any automated back end would have to meet — session
-reuse rather than stored passwords, humans handling every login challenge,
-refusing ambiguous product matches, and stopping at the cart rather than
-checkout.
+```bash
+python -m whole_foods_agent cart
+```
+
+One link per item. With an ASIN it opens the product itself; without one it can
+only open a search, and you pick. Nothing to authenticate, nothing to break.
+
+### Browser (`--via browser`)
+
+Drives a signed-in browser and adds items to the cart.
+
+```bash
+pip install playwright && playwright install chromium
+
+# See what it would do. This is the default; nothing is added.
+python -m whole_foods_agent cart --via browser --profile ~/.wf-profile
+
+# Actually add.
+python -m whole_foods_agent cart --via browser --profile ~/.wf-profile --confirm
+```
+
+**Read this before using it.** Amazon publishes no customer API for grocery
+history or the cart, so this automates the website. That breaches Amazon's
+Conditions of Use and the risk lands on the account it runs as. The deep-link
+back end remains the default for that reason.
+
+What it will and will not do:
+
+- **It never handles a password.** There is no credential field in the code.
+  It opens a persistent browser profile; if the session is not signed in, it
+  waits while a human signs in and clears any one-time code. It does not try to
+  defeat login challenges, and it does not attempt to look like anything other
+  than what it is.
+- **It stops at the cart.** Any navigation towards checkout, payment or a
+  delivery slot aborts the run. Adding to a cart is reversible; buying is not.
+- **It refuses ambiguous matches.** With an ASIN it goes straight to the
+  product. Without one it searches, and adds only when a result is both a good
+  match and clearly better than the runner-up — "Organic Sweet Onion" matches
+  dozens of listings, and a wrong match becomes a real purchase. Anything it is
+  unsure about is reported for you to decide.
+- **Weighed items become one unit**, flagged, because a cart cannot express
+  "2.52 lb". An implausible quantity is capped rather than ordered.
+- **It is paced and bounded**, and aborts on the first unexpected page.
+
+The selectors are the fragile part: they reflect Amazon's markup at the time of
+writing and will need updating when it changes. Everything that decides
+*whether* to add something is unit-tested against a fake browser; the selectors
+themselves can only be verified against the live site, so run `--dry-run` first
+after any change and check the screenshot written on failure.
 
 ## Known limits of the data
 
@@ -127,8 +188,8 @@ checkout.
   is visible, and the order sheet says so rather than quietly under-counting.
 - **Delivery orders are not itemised in email at all.** The Amazon
   confirmations for those carry a total and a delivery window, nothing more. If
-  most shopping is delivered, email alone will miss most of the basket — an
-  account order export is the fuller source.
+  most shopping is delivered, email alone will miss most of the basket. Use the
+  account export.
 - **Cadence needs history.** Below about six orders most items have been bought
   once, and the list will be short. The tool says so in its notes instead of
   inventing confidence it does not have.
@@ -140,12 +201,14 @@ checkout.
 |---|---|
 | `receipts.py` | Parse receipt emails (HTML, with plain text as fallback) |
 | `gmail.py` | Fetch those emails over IMAP from any mailbox |
+| `amazon_export.py` | Parse an Amazon account data export |
 | `model.py` | The normalized `Order`/`LineItem` shape every source produces |
 | `store.py` | The local JSON history, upserted by order id |
 | `catalog.py` | Per-item cadence, quantities, prices, co-occurrence |
 | `basket.py` | Choosing what goes on the list, and why |
 | `render.py` | The text list and the HTML order sheet |
 | `cart.py` | The seam between a proposed order and a real cart |
+| `browser_cart.py` | The signed-in browser back end, and its guardrails |
 
 Adding a source means writing a parser that emits `Order` objects; nothing
 downstream changes.

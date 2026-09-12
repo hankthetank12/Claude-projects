@@ -32,6 +32,8 @@ class ItemStats:
     unit_prices: list[float] = field(default_factory=list)
     unit: str = "each"
     total_spend: float = 0.0
+    # Carried through from any source that recorded one, newest wins.
+    product_id: str | None = None
 
     @property
     def times_bought(self) -> int:
@@ -147,6 +149,7 @@ def build(orders: Sequence[Order]) -> Catalog:
             stats.department = item.department
             stats.size = item.size or stats.size
             stats.unit = item.unit
+            stats.product_id = item.product_id or stats.product_id
             stats.dates.append(order.ordered_on)
             stats.quantities.append(item.quantity)
             if item.unit_price is not None:

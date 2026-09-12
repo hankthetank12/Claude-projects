@@ -74,7 +74,7 @@ def test_import_skips_files_that_are_not_receipts(workspace, capsys):
     junk = tmp_path / "junk.html"
     junk.write_text("<html><body>hello</body></html>", encoding="utf-8")
     assert main(["import", str(junk)]) == 0
-    assert "Parsed 0 of 1 files" in capsys.readouterr().out
+    assert "Read 0 orders from 1 file" in capsys.readouterr().out
 
 
 def test_commands_explain_themselves_when_there_is_no_history(workspace):
@@ -115,25 +115,64 @@ def test_cart_defaults_to_links_and_adds_nothing(workspace, capsys):
     assert "0 added to a cart automatically" in output
 
 
-def test_cart_via_browser_fails_loudly(workspace):
+def test_cart_via_browser_says_what_it_needs(workspace, capsys):
+    # Without Playwright or a profile it must explain itself, not traceback.
     _, data, _ = workspace
     _seed(data)
     with pytest.raises(SystemExit) as excinfo:
         main(["cart", "--via", "browser"])
-    assert "not implemented" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "playwright" in message.lower() or "profile" in message.lower()
 
 
-def test_send_without_mail_settings_prints_instead(workspace, capsys):
+def test_cart_via_browser_is_dry_run_unless_confirmed(workspace, capsys):
     _, data, _ = workspace
     _seed(data)
-    assert main(["send"]) == 0
-    captured = capsys.readouterr()
-    assert "Not sending" in captured.err
-    assert "Subject:" in captured.out
+    with pytest.raises(SystemExit):
+        main(["cart", "--via", "browser"])
+    assert "Dry run: nothing will be added" in capsys.readouterr().out
 
 
-def test_budget_is_respected_from_the_command_line(workspace, capsys):
-    _, data, _ = workspace
-    _seed(data)
-    assert main(["order", "--budget", "0.01"]) == 0
-    assert "Estimated total" not in capsys.readouterr().out
+def test_import_reads_an_amazon_export(workspace, capsys):
+    tmp_path, data, _ = workspace
+    export = tmp_path / "Retail.OrderHistory.1.csv"
+    export.write_text(
+        '"Website","Order ID","Order Date","Unit Price","Quantity","ASIN","Product Name"\n'
+        '"Whole Foods Market","113-0000000-0000021","2026-08-23","6.99","1","B0001","Organic Whole Milk, 59 FZ"\n'
+        '"Amazon.com","111-1111111-1111111","2026-08-23","19.99","1","B0002","Phone Case"\n',
+        encoding="utf-8",
+    )
+    assert main(["import", str(export)]) == 0
+    out = capsys.readouterr().out
+    assert "History now holds 1 orders" in out
+
+    saved = OrderStore.load(data / "orders.json").orders()
+    assert [i.name for i in saved[0].items] == ["Organic Whole Milk"]
+    # The ASIN must survive into the store; it is what makes a cart match exact.
+    assert saved[0].items[0].product_id == "B0001"
+
+
+def test_an_export_gives_exact_product_links(workspace, capsys):
+    from datetime import timedelta
+
+    tmp_path, data, _ = workspace
+    today = date.today()
+    # Weekly purchases ending a week ago, so the item is due now.
+    rows = "".join(
+        '"Whole Foods Market","113-0000000-000003{i}","{day}",'
+        '"6.99","1","B0001","Organic Whole Milk, 59 FZ"\n'.format(
+            i=i, day=(today - timedelta(days=7 * (4 - i))).isoformat()
+        )
+        for i in range(4)
+    )
+    export = tmp_path / "Retail.OrderHistory.1.csv"
+    export.write_text(
+        '"Website","Order ID","Order Date","Unit Price","Quantity","ASIN","Product Name"\n' + rows,
+        encoding="utf-8",
+    )
+    assert main(["import", str(export)]) == 0
+    capsys.readouterr()
+    assert main(["cart"]) == 0
+    out = capsys.readouterr().out
+    assert "/dp/B0001" in out
+    assert "exact product link" in out

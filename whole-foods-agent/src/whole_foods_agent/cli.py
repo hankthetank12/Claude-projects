@@ -1,6 +1,6 @@
 """Command line entry point.
 
-    whole-foods import FILES...   parse saved receipt emails into the history
+    whole-foods import FILES...   parse receipt emails or an account export
     whole-foods sync              pull receipts from a mailbox over IMAP
     whole-foods items             what the history says gets bought, and how often
     whole-foods order             build the next order
@@ -18,7 +18,17 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import __version__, basket, cart as cart_mod, catalog as catalog_mod, mailer, render, sample, store
+from . import (
+    __version__,
+    amazon_export,
+    basket,
+    cart as cart_mod,
+    catalog as catalog_mod,
+    mailer,
+    render,
+    sample,
+    store,
+)
 from .config import Config
 from .receipts import ReceiptError, parse_file
 
@@ -51,32 +61,54 @@ def _build_proposal(config: Config, args: argparse.Namespace, catalog: catalog_m
     )
 
 
-def _import(config: Config, paths: list[str]) -> None:
-    found: list[Path] = []
+def _import(config: Config, paths: list[str], *, all_stores: bool = False) -> None:
+    """Read receipt emails and account exports into the history.
+
+    Both kinds land in the same store, and an export's fuller record of an
+    order wins over a receipt email's truncated one.
+    """
+    receipts: list[Path] = []
+    exports: list[Path] = []
+
     for raw in paths:
         path = Path(raw)
         if path.is_dir():
+            exports.extend(amazon_export.find_exports(path))
             for suffix in ("*.eml", "*.html", "*.htm", "*.txt"):
-                found.extend(sorted(path.glob(suffix)))
+                receipts.extend(sorted(path.glob(suffix)))
         elif path.is_file():
-            found.append(path)
+            (exports if path.suffix.lower() == ".csv" else receipts).append(path)
         else:
             print(f"warning: {path} does not exist", file=sys.stderr)
 
     orders = []
     failed = 0
-    for path in found:
+
+    for path in receipts:
         try:
             orders.append(parse_file(path))
         except (ReceiptError, OSError) as exc:
             failed += 1
             log.warning("could not parse %s: %s", path, exc)
 
+    for path in exports:
+        try:
+            found = amazon_export.parse_export(
+                path, stores=None if all_stores else amazon_export.GROCERY_STORES
+            )
+            orders.extend(found)
+            print(f"{path.name}: {len(found)} orders")
+        except (amazon_export.ExportError, OSError) as exc:
+            failed += 1
+            log.warning("could not parse %s: %s", path, exc)
+
     history = store.OrderStore.load(_orders_path(config))
     changed = history.merge(orders)
     history.save(_orders_path(config))
+
+    total = len(receipts) + len(exports)
     print(
-        f"Parsed {len(orders)} of {len(found)} files"
+        f"Read {len(orders)} orders from {total} file{'s' if total != 1 else ''}"
         f"{f' ({failed} unreadable)' if failed else ''}; "
         f"{changed} new or updated. History now holds {len(history)} orders."
     )
@@ -136,19 +168,39 @@ def _order(config: Config, args: argparse.Namespace) -> None:
 def _cart(config: Config, args: argparse.Namespace) -> None:
     catalog = _load_catalog(config)
     proposal = _build_proposal(config, args, catalog)
+
+    options: dict[str, object] = {}
+    if args.via == "browser":
+        options = {
+            "profile_dir": args.profile,
+            "dry_run": not args.confirm,
+            "headless": False,
+        }
+        if not args.confirm:
+            print("Dry run: nothing will be added. Re-run with --confirm to add.\n")
+
     try:
-        adapter = cart_mod.get_adapter(args.via)
+        adapter = cart_mod.get_adapter(args.via, **options)
         entries = adapter.submit(proposal.lines)
     except cart_mod.CartUnavailable as exc:
         raise SystemExit(f"error: {exc}") from exc
+    except Exception as exc:  # surfaced plainly rather than as a traceback
+        raise SystemExit(f"error: {exc}") from exc
 
     added = sum(1 for entry in entries if entry.added)
+    needs_review = [entry for entry in entries if not entry.added and entry.detail]
     for entry in entries:
         quantity = f"{entry.quantity:g} {entry.unit}" if entry.unit != "each" else f"{entry.quantity:g}"
-        print(f"{'[added]' if entry.added else '[link] '} {quantity} x {entry.name}")
+        marker = "[added]" if entry.added else "[     ]"
+        print(f"{marker} {quantity} x {entry.name}")
+        if entry.detail:
+            print(f"          {entry.detail}")
         if entry.url:
             print(f"          {entry.url}")
+
     print(f"\n{len(entries)} items, {added} added to a cart automatically.")
+    if args.via == "browser" and needs_review:
+        print(f"{len(needs_review)} need a human: see the notes above.")
 
 
 def _send(config: Config, args: argparse.Namespace) -> None:
@@ -220,8 +272,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="log what it is doing")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_import = sub.add_parser("import", help="parse saved receipt emails (.eml/.html) or a folder of them")
+    p_import = sub.add_parser(
+        "import",
+        help="parse receipt emails (.eml/.html), an Amazon export (.csv), or a folder",
+    )
     p_import.add_argument("paths", nargs="+")
+    p_import.add_argument(
+        "--all-stores",
+        action="store_true",
+        dest="all_stores",
+        help="keep every storefront in an export, not just Whole Foods and Fresh",
+    )
 
     p_sync = sub.add_parser("sync", help="pull receipts from a mailbox over IMAP")
     p_sync.add_argument("--since", help='only messages after an IMAP date, e.g. "01-Jan-2026"')
@@ -241,7 +302,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_cart = sub.add_parser("cart", help="resolve the order towards a cart back end")
     _order_args(p_cart)
-    p_cart.add_argument("--via", default="links", help="cart back end: links (default) or browser")
+    p_cart.add_argument(
+        "--via", default="links", choices=["links", "browser"], help="cart back end (default: links)"
+    )
+    p_cart.add_argument("--profile", help="browser profile directory, so the sign-in persists")
+    p_cart.add_argument(
+        "--confirm",
+        action="store_true",
+        help="actually add to the cart; without this the browser back end only reports",
+    )
 
     p_send = sub.add_parser("send", help="email the order sheet")
     _order_args(p_send)
@@ -261,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "import":
-            _import(config, args.paths)
+            _import(config, args.paths, all_stores=args.all_stores)
         elif args.command == "sync":
             _sync(config, args.since, args.limit)
         elif args.command == "items":

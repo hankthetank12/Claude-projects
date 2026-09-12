@@ -187,6 +187,10 @@ class LineItem:
     line_total: float | None = None
     promotion: float = 0.0
     size: str | None = None
+    # Set only by sources that record one (an account export does; a receipt
+    # email does not). An exact id is the difference between adding the right
+    # product and guessing from a name.
+    product_id: str | None = None
 
     @classmethod
     def from_raw(
@@ -198,6 +202,7 @@ class LineItem:
         unit_price: float | None = None,
         line_total: float | None = None,
         promotion: float = 0.0,
+        product_id: str | None = None,
     ) -> "LineItem":
         without_department, department_hint = strip_department(raw_name)
         name, size = split_size(without_department)
@@ -212,6 +217,7 @@ class LineItem:
             line_total=line_total,
             promotion=promotion,
             size=size,
+            product_id=product_id,
         )
 
     @property
@@ -230,6 +236,7 @@ class LineItem:
             "line_total": self.line_total,
             "promotion": self.promotion,
             "size": self.size,
+            "product_id": self.product_id,
         }
 
     @classmethod
@@ -245,6 +252,7 @@ class LineItem:
             line_total=payload.get("line_total"),
             promotion=float(payload.get("promotion", 0.0)),
             size=payload.get("size"),
+            product_id=payload.get("product_id"),
         )
 
 
@@ -333,4 +341,5 @@ def merge_duplicate_lines(items: Iterable[LineItem]) -> list[LineItem]:
         if existing.line_total is not None and item.line_total is not None:
             existing.line_total += item.line_total
         existing.promotion += item.promotion
+        existing.product_id = existing.product_id or item.product_id
     return list(merged.values())

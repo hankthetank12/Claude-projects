@@ -11,15 +11,12 @@ Implemented:
   authenticate, nothing to break; tapping a link on a phone opens the Amazon
   app at that product so it is one tap to add.
 
-Not implemented, and why:
-
-* `BrowserCart` — driving a signed-in browser session to add items directly.
-  Amazon publishes no customer API for grocery order history or the cart, so
-  this would mean automating the site with real account credentials. That
-  breaches Amazon's Conditions of Use, risks the account it runs as, and needs
-  live credentials plus interactive 2FA to build or test at all. The class
-  below documents the contract it would have to satisfy rather than shipping a
-  version that cannot be verified.
+* `BrowserCart` (in `browser_cart`) — drives a signed-in browser to add items
+  directly. Amazon publishes no customer API for grocery history or the cart,
+  so this automates the website, which breaches their Conditions of Use and
+  puts the account at risk. It is dry-run by default, never handles a password,
+  refuses ambiguous product matches and stops at the cart. Read that module
+  before using it.
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ from dataclasses import dataclass
 from typing import Protocol, Sequence
 
 from .basket import OrderLine
-from .render import search_url
+from .render import item_url
 
 
 @dataclass
@@ -41,6 +38,7 @@ class CartEntry:
     url: str | None = None
     added: bool = False
     detail: str | None = None
+    product_id: str | None = None
 
 
 class CartAdapter(Protocol):
@@ -58,63 +56,41 @@ class DeepLinkCart:
     """
 
     def submit(self, lines: Sequence[OrderLine]) -> list[CartEntry]:
-        return [
-            CartEntry(
-                name=line.name,
-                quantity=line.quantity,
-                unit=line.stats.unit,
-                url=search_url(line.name),
-                added=False,
-                detail="search link; add from the app",
+        entries = []
+        for line in lines:
+            product_id = line.stats.product_id
+            entries.append(
+                CartEntry(
+                    name=line.name,
+                    quantity=line.quantity,
+                    unit=line.stats.unit,
+                    url=item_url(line.name, product_id),
+                    added=False,
+                    product_id=product_id,
+                    detail=(
+                        "exact product link"
+                        if product_id
+                        else "search link; pick the right one in the app"
+                    ),
+                )
             )
-            for line in lines
-        ]
+        return entries
 
 
 class CartUnavailable(RuntimeError):
     """Raised when a back end cannot be used in this environment."""
 
 
-class BrowserCart:
-    """Contract for a future signed-in browser back end.
+def get_adapter(name: str, **kwargs) -> CartAdapter:
+    """Look up a cart back end by name.
 
-    A working implementation would need to, at minimum:
-
-    1. Reuse a persistent browser profile so a human logs in once, interactively,
-       and later runs ride on that session. Storing an account password in
-       config, or defeating a login challenge, is out of scope by design.
-    2. Hand every CAPTCHA, one-time code and re-authentication prompt back to a
-       human rather than attempting to satisfy it automatically.
-    3. Resolve each proposed line to a specific product and refuse ambiguous
-       matches instead of guessing, since a wrong match becomes a real purchase.
-    4. Stop at the cart. Never advance to checkout, delivery slot or payment.
-    5. Be rate limited to human pace, and abort the whole run on the first
-       unexpected page rather than clicking blindly onward.
-
-    Point 3 is the one that makes this genuinely risky: "Organic Sweet Onion"
-    matches dozens of listings, and history records the name only, never the
-    product identifier that would make the match exact.
+    The browser back end is imported lazily: it depends on Playwright, which
+    most installs will not have, and nothing else here should require it.
     """
+    if name == "links":
+        return DeepLinkCart()
+    if name == "browser":
+        from .browser_cart import BrowserCart
 
-    def __init__(self, *, profile_dir: str | None = None) -> None:
-        self.profile_dir = profile_dir
-
-    def submit(self, lines: Sequence[OrderLine]) -> list[CartEntry]:
-        raise CartUnavailable(
-            "The signed-in browser back end is not implemented. It needs real "
-            "account credentials and an interactive login to build or verify, "
-            "and it breaches Amazon's Conditions of Use. Use DeepLinkCart, or "
-            "see this class's docstring for the contract an implementation "
-            "would have to meet."
-        )
-
-
-def get_adapter(name: str) -> CartAdapter:
-    """Look up a cart back end by name."""
-    adapters: dict[str, CartAdapter] = {
-        "links": DeepLinkCart(),
-        "browser": BrowserCart(),
-    }
-    if name not in adapters:
-        raise CartUnavailable(f"unknown cart back end {name!r}; try {sorted(adapters)}")
-    return adapters[name]
+        return BrowserCart(**kwargs)
+    raise CartUnavailable(f"unknown cart back end {name!r}; try ['browser', 'links']")

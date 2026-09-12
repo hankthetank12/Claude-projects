@@ -5,9 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "whole-foods-agent"
 version = "1.0.0"
-description = "Reads your Whole Foods receipt emails and puts together the next order from what you actually buy."
+description = "Builds your next Whole Foods order from your own buying history."
 requires-python = ">=3.10"
 dependencies = []
+
+# Only the browser cart back end needs Playwright, and most installs will not
+# use it, so it stays an opt-in extra: pip install -e ".[browser]"
+[project.optional-dependencies]
+browser = ["playwright>=1.40"]
 
 [project.scripts]
 whole-foods = "whole_foods_agent.cli:main"

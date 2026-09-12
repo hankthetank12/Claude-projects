@@ -22,11 +22,24 @@ ASSETS = Path(__file__).resolve().parent / "assets"
 # than general Amazon results. Opens the Amazon app on a phone.
 WFM_BRAND_ID = "VUZHIFdob2xlIEZvb2Rz"
 SEARCH_URL = "https://www.amazon.com/s?k={query}&almBrandId=" + WFM_BRAND_ID
+PRODUCT_URL = "https://www.amazon.com/dp/{product_id}"
 
 
 def search_url(name: str) -> str:
     """A deep link that opens this product's search in the Amazon app."""
     return SEARCH_URL.format(query=quote_plus(name))
+
+
+def item_url(name: str, product_id: str | None = None) -> str:
+    """The best link available: the exact product when its id is known.
+
+    History from an account export records an ASIN, so the link lands on the
+    product itself. History from a receipt email has only a name, so the link
+    can only be a search and the reader picks.
+    """
+    if product_id:
+        return PRODUCT_URL.format(product_id=quote_plus(product_id))
+    return search_url(name)
 
 
 def _quantity_label(line: OrderLine) -> str:
@@ -106,8 +119,10 @@ def _item_li(line: OrderLine) -> str:
         f'<div class="why">{html.escape(line.reason)}</div>'
         f"</div>"
         f'<div class="right"><span class="price">{price}</span>'
-        f'<a class="find" href="{html.escape(search_url(line.name), quote=True)}" '
-        f'target="_blank" rel="noopener">Find in app</a></div>'
+        f'<a class="find" href="'
+        f'{html.escape(item_url(line.name, line.stats.product_id), quote=True)}" '
+        f'target="_blank" rel="noopener">'
+        f'{"Open in app" if line.stats.product_id else "Find in app"}</a></div>'
         f"</li>"
     )
 
@@ -117,7 +132,8 @@ def _minor_list(title: str, entries: list[ItemStats], describe) -> str:
         return ""
     rows = "".join(
         f'<div class="minor">{html.escape(stats.name)} — {html.escape(describe(stats))} '
-        f'<a class="find" href="{html.escape(search_url(stats.name), quote=True)}" '
+        f'<a class="find" href="'
+        f'{html.escape(item_url(stats.name, stats.product_id), quote=True)}" '
         f'target="_blank" rel="noopener">Find</a></div>'
         for stats in entries
     )
