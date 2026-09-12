@@ -31,18 +31,23 @@ _FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "order_id": ("order id", "orderid", "amazon order id"),
     "ordered_on": ("order date", "order placed date", "shipment date", "ship date"),
     "name": ("product name", "title", "item name", "description"),
-    "quantity": ("quantity", "qty", "item quantity"),
+    "quantity": ("original quantity", "quantity", "qty", "item quantity"),
     "unit_price": ("unit price", "purchase price per unit", "per unit price", "item price"),
-    "line_total": ("total owed", "item subtotal", "shipment item subtotal", "item total"),
+    "line_total": ("total amount", "total owed", "item subtotal", "item total"),
     "product_id": ("asin", "asin isbn", "asin/isbn", "product id"),
     "website": ("website", "store", "marketplace"),
+    "status": ("order status", "shipment status"),
 }
+
+# Rows in these states were never actually bought.
+CANCELLED_STATES = ("cancelled", "canceled")
 
 # Which storefronts count as grocery. The export covers every Amazon purchase,
 # and a year of books and batteries would drown the shopping signal.
-GROCERY_STORES = ("whole foods", "amazon fresh", "fresh")
+GROCERY_STORES = ("whole foods", "wholefoods", "amazon fresh", "amazon go")
 
 _DATE_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S.%fZ",
     "%Y-%m-%dT%H:%M:%SZ",
     "%Y-%m-%dT%H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
@@ -147,6 +152,11 @@ def parse_rows(
             skipped_store += 1
             continue
 
+        status = (row.get(mapping.get("status", ""), "") or "").strip().lower()
+        if any(state in status for state in CANCELLED_STATES):
+            skipped_unusable += 1
+            continue
+
         order_id = (row.get(mapping.get("order_id", ""), "") or "").strip()
         name = (row.get(mapping.get("name", ""), "") or "").strip()
         ordered_on = _parse_date(row.get(mapping.get("ordered_on", ""), ""))
@@ -188,6 +198,7 @@ def parse_rows(
     orders: list[Order] = []
     for order_id, items in grouped.items():
         merged = merge_duplicate_lines(items)
+        _repair_order_level_totals(order_id, merged)
         subtotal = sum(item.line_total or 0.0 for item in merged)
         orders.append(
             Order(
@@ -199,12 +210,31 @@ def parse_rows(
                 total=round(subtotal, 2) if subtotal else None,
                 channel="delivery",
                 source=source,
-                # The export lists every line, so nothing is missing and the
-                # count is simply what we read.
+                # The export lists every line, so nothing is missing.
                 stated_item_count=None,
             )
         )
     return sorted(orders, key=lambda order: order.ordered_on)
+
+
+def _repair_order_level_totals(order_id: str, items: list[LineItem]) -> None:
+    """Undo a total column that is really the order subtotal.
+
+    The current export repeats the order's subtotal on every row of the order.
+    Taken at face value that multiplies an order's spend by its line count, so
+    a value identical across lines whose unit prices differ is treated as
+    order-level and each line is recomputed from its own price.
+    """
+    if len(items) < 2:
+        return
+    totals = {item.line_total for item in items if item.line_total is not None}
+    prices = {item.unit_price for item in items if item.unit_price is not None}
+    if len(totals) != 1 or len(prices) < 2:
+        return
+    log.info("%s: total column looks order-level; recomputing line totals", order_id)
+    for item in items:
+        if item.unit_price is not None:
+            item.line_total = round(item.unit_price * item.quantity, 2)
 
 
 def _open_rows(path: Path) -> tuple[list[dict[str, str]], list[str]]:

@@ -21,6 +21,20 @@ STALE_RATIO = 3.0
 # A single purchase with nothing to compare it to is a suggestion at best.
 SUGGESTION_RECENT_DAYS = 120
 
+# Two purchases give one gap, and one gap is not a rhythm. Over years of
+# sporadic shopping, pairs of unrelated purchases produce confident-looking
+# "cadences" of 500 days that mean nothing.
+MIN_PURCHASES = 3
+
+# A gap longer than this is not replenishment. Something bought every eight
+# months is an occasional treat, and predicting the next one is guesswork.
+MAX_INTERVAL_DAYS = 90.0
+
+# However overdue the arithmetic says it is, an item not bought in this long
+# has left the rotation. A ratio test alone cannot catch this: an item with a
+# fabricated 500-day cadence is only "2.5x overdue" after three years.
+MAX_DAYS_SINCE = 120
+
 
 @dataclass
 class OrderLine:
@@ -65,6 +79,9 @@ class ProposedOrder:
     # Long overdue: probably no longer bought, worth a glance.
     lapsed: list[ItemStats] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # Why candidates were rejected, counted by reason, so a short list is
+    # explainable rather than mysterious.
+    excluded: dict[str, int] = field(default_factory=dict)
 
     @property
     def estimated_total(self) -> float:
@@ -103,39 +120,69 @@ def build(
     due_threshold: float = 0.8,
     budget: float | None = None,
     max_items: int | None = None,
+    min_purchases: int = MIN_PURCHASES,
+    max_interval_days: float = MAX_INTERVAL_DAYS,
+    max_days_since: int = MAX_DAYS_SINCE,
 ) -> ProposedOrder:
-    """Propose the next order from buying history."""
+    """Propose the next order from buying history.
+
+    An item has to clear four separate bars before it is proposed: bought
+    enough times to have a rhythm, on a gap short enough to be replenishment,
+    bought recently enough to still be in the rotation, and far enough through
+    that gap to be running out. Each rejection is counted so a short list can
+    explain itself.
+    """
     today = on_date or date.today()
     proposal = ProposedOrder(on_date=today)
 
+    def reject(reason: str) -> None:
+        proposal.excluded[reason] = proposal.excluded.get(reason, 0) + 1
+
     candidates: list[OrderLine] = []
     for stats in catalog.items.values():
-        if not stats.has_cadence:
-            # No rhythm to measure: offer it only if it was bought recently.
-            if stats.days_since(today) <= SUGGESTION_RECENT_DAYS:
+        days_since = stats.days_since(today)
+
+        if stats.times_bought < min_purchases:
+            # Not enough purchases to tell a habit from a coincidence.
+            if stats.times_bought == 1 and days_since <= SUGGESTION_RECENT_DAYS:
                 proposal.suggestions.append(stats)
+            else:
+                reject(f"bought fewer than {min_purchases} times")
             continue
 
         ratio = stats.due_ratio(today)
         interval = stats.median_interval
         if ratio is None or interval is None:
+            reject("no measurable gap between purchases")
+            continue
+
+        if interval > max_interval_days:
+            reject(f"bought less often than every {max_interval_days:.0f} days")
+            continue
+
+        if days_since > max_days_since:
+            # Whatever the ratio says, this has not been bought in months.
+            proposal.lapsed.append(stats)
             continue
 
         if ratio >= STALE_RATIO:
             proposal.lapsed.append(stats)
             continue
 
-        if ratio >= due_threshold:
-            candidates.append(
-                OrderLine(
-                    stats=stats,
-                    due_ratio=ratio,
-                    days_since=stats.days_since(today),
-                    interval=interval,
-                    quantity=stats.typical_quantity,
-                    estimated_cost=stats.estimated_cost(),
-                )
+        if ratio < due_threshold:
+            reject("not far enough through its usual gap yet")
+            continue
+
+        candidates.append(
+            OrderLine(
+                stats=stats,
+                due_ratio=ratio,
+                days_since=days_since,
+                interval=interval,
+                quantity=stats.typical_quantity,
+                estimated_cost=stats.estimated_cost(),
             )
+        )
 
     # Most overdue first, then the items bought most often.
     candidates.sort(key=lambda line: (-line.due_ratio, -line.stats.times_bought))
@@ -211,5 +258,19 @@ def _notes(catalog: Catalog, proposal: ProposedOrder, budget: float | None) -> l
             f"Only {len(catalog.orders)} orders in history — cadence estimates "
             "get materially better past about 6."
         )
+
+    if not proposal.lines and catalog.items:
+        biggest = sorted(proposal.excluded.items(), key=lambda kv: -kv[1])[:2]
+        if biggest:
+            detail = "; ".join(f"{count} {reason}" for reason, count in biggest)
+            notes.append(f"Nothing is due. Of {len(catalog.items)} items seen: {detail}.")
+
+    if proposal.lines:
+        rejected = sum(proposal.excluded.values())
+        if rejected:
+            notes.append(
+                f"{rejected} other items were not proposed — most are bought too "
+                "rarely or too long ago to predict."
+            )
 
     return notes

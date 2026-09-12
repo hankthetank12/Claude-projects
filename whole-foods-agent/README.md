@@ -115,12 +115,24 @@ For every item that has been bought at least twice:
 - **quantity** — the median quantity bought, so three tins of beans stays three.
 - **estimate** — the most recent price paid × that quantity.
 
-Two guards keep the list honest:
+Four bars have to be cleared before anything is proposed, because most of a
+real grocery history is a long tail of things bought once:
 
-- An item bought **once** has no measurable rhythm, so it never lands on the
-  list automatically. It appears under "bought before, no rhythm yet".
-- An item **three times past** its usual gap has probably left the rotation.
-  It moves to "long overdue, maybe dropped" rather than being proposed forever.
+- **Bought at least 3 times.** Two purchases give one gap, and one gap is not a
+  rhythm. Over years of sporadic shopping, two unrelated purchases produce a
+  confident-looking "cadence" of 500 days that means nothing.
+- **On a gap of 90 days or less.** Something bought every eight months is an
+  occasional treat; predicting the next one is guesswork.
+- **Bought within the last 120 days.** A ratio test alone cannot catch an
+  abandoned item: something with a fabricated 500-day cadence is still only
+  "2.5x overdue" after three years. Anything older moves to "long overdue".
+- **Far enough through its gap** — at or above `WFA_DUE_THRESHOLD`.
+
+All three thresholds are arguments to `basket.build`, so a household that
+shops weekly and one that shops monthly can both be fitted.
+
+Rejections are counted by reason, so a short list explains itself rather than
+looking broken.
 
 Fees and container deposits are stripped out; they are on every receipt and are
 not shopping.
@@ -190,9 +202,13 @@ after any change and check the screenshot written on failure.
   confirmations for those carry a total and a delivery window, nothing more. If
   most shopping is delivered, email alone will miss most of the basket. Use the
   account export.
-- **Cadence needs history.** Below about six orders most items have been bought
-  once, and the list will be short. The tool says so in its notes instead of
-  inventing confidence it does not have.
+- **Cadence needs history, and the right kind.** Most items in a real export
+  are bought once or twice; on a seven-year, roughly monthly history only a
+  handful of items clear the bars above, and a four-item list is the honest
+  answer rather than a broken one. The notes say how many were left out.
+- **The same product can appear twice.** Amazon relists groceries, so "Banana"
+  and "Organic Banana, 1 Bunch (4-5 Count)" are different rows with different
+  ids and are counted separately.
 - **Prices are the last price paid**, not today's shelf price.
 
 ## Layout
