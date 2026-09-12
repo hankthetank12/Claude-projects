@@ -9,3 +9,5 @@ venv/
 build/
 dist/
 oura-dashboard/out/
+whole-foods-agent/out/
+whole-foods-agent/data/*.json

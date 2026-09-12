@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whole-foods-agent"
+version = "1.0.0"
+description = "Reads your Whole Foods receipt emails and puts together the next order from what you actually buy."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+whole-foods = "whole_foods_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# The order sheet's CSS and JS are read at render time, so they must ship with
+# the package rather than only existing in the source tree.
+[tool.setuptools.package-data]
+whole_foods_agent = ["assets/*.css", "assets/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
