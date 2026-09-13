@@ -15,6 +15,18 @@ from typing import Any
 HOUR = 3600.0
 MINUTE = 60.0
 
+# PublicSleepType from the API schema:
+#   long_sleep = sleep long enough (>3h) to contribute to daily scores
+#   sleep      = user-confirmed sleep/nap, 15 min to 3 h
+#   late_nap   = user-confirmed nap that ended after the 6pm sleep-day change
+#   rest       = falsely detected sleep the user rejected in the confirm prompt
+#   deleted    = sleep period the user deleted
+# Only long_sleep is a night; rest and deleted are not sleep at all and must
+# not be mistaken for one.
+NIGHT_SLEEP_TYPES = {"long_sleep"}
+NAP_SLEEP_TYPES = {"sleep", "late_nap"}
+DISCARDED_SLEEP_TYPES = {"rest", "deleted"}
+
 
 def _to_date(value: Any) -> date | None:
     if not value:
@@ -243,23 +255,44 @@ def build_rows(history: Any) -> list[DayRow]:
         if meters is not None:
             row.walking_equivalent_km = meters / 1000.0
 
-    # The `sleep` endpoint holds one document per sleep period: the long sleep
-    # carries the night's physiology, naps are accumulated separately.
-    nights: dict[date, dict[str, Any]] = {}
+    # The `sleep` endpoint holds one document per sleep period, so each day has
+    # to be sorted into the night that carries the physiology plus any naps.
+    night_candidates: dict[date, list[dict[str, Any]]] = {}
+    nap_candidates: dict[date, list[dict[str, Any]]] = {}
     for doc in history.documents("sleep"):
         day = _to_date(doc.get("day"))
         if day is None:
             continue
-        duration = _nz(doc.get("total_sleep_duration")) or 0.0
-        is_nap = str(doc.get("type", "")).endswith("nap")
-        if is_nap:
-            row = row_for(day)
-            if row:
-                row.nap_h += duration / HOUR
+        kind = doc.get("type")
+        kind = str(kind).lower() if kind else ""
+        if kind in DISCARDED_SLEEP_TYPES:
             continue
-        best = nights.get(day)
-        if best is None or duration > (_nz(best.get("total_sleep_duration")) or 0.0):
-            nights[day] = doc
+        # A missing type predates the field, so assume it is the main sleep.
+        if kind in NIGHT_SLEEP_TYPES or not kind:
+            night_candidates.setdefault(day, []).append(doc)
+        elif kind in NAP_SLEEP_TYPES:
+            nap_candidates.setdefault(day, []).append(doc)
+        else:  # an unrecognised future type; better counted than dropped
+            night_candidates.setdefault(day, []).append(doc)
+
+    def duration_of(doc: dict[str, Any]) -> float:
+        return _nz(doc.get("total_sleep_duration")) or 0.0
+
+    nights: dict[date, dict[str, Any]] = {}
+    for day in set(night_candidates) | set(nap_candidates):
+        periods = sorted(night_candidates.get(day, []), key=duration_of, reverse=True)
+        naps = list(nap_candidates.get(day, []))
+        if periods:
+            nights[day] = periods[0]
+            naps.extend(periods[1:])  # a second long period counts as extra sleep
+        elif naps:
+            # No main sleep that day: promote the longest nap so the night is
+            # reported rather than silently missing.
+            naps.sort(key=duration_of, reverse=True)
+            nights[day] = naps.pop(0)
+        row = row_for(day)
+        if row:
+            row.nap_h = sum(duration_of(nap) for nap in naps) / HOUR
 
     for day, doc in nights.items():
         row = row_for(day)
@@ -295,11 +328,12 @@ def build_rows(history: Any) -> list[DayRow]:
         row = row_for(doc.get("day"))
         if not row:
             continue
+        # Both are documented as "Time spent in a high ... zone ... in seconds",
+        # with no unit ambiguity, so they always convert.
         stress = _nz(doc.get("stress_high"))
         recovery = _nz(doc.get("recovery_high"))
-        # Oura reports these in seconds; small values are already minutes.
-        row.stress_high_min = stress / MINUTE if stress and stress > 240 else stress
-        row.recovery_high_min = recovery / MINUTE if recovery and recovery > 240 else recovery
+        row.stress_high_min = stress / MINUTE if stress is not None else None
+        row.recovery_high_min = recovery / MINUTE if recovery is not None else None
         row.stress_summary = doc.get("day_summary")
 
     for doc in history.documents("daily_spo2"):

@@ -210,13 +210,17 @@ def generate(days: int = 120, end: date | None = None, seed: int = 7) -> dict[st
         })
 
         # --- stress, spo2, resilience ------------------------------------
-        stress_high = int(max(0, rng.gauss(74 if not is_weekend else 42, 34) + (40 if ill else 0)))
+        # The API reports these in seconds, so generate minutes and convert.
+        stress_min = max(0.0, rng.gauss(74 if not is_weekend else 42, 34) + (40 if ill else 0))
+        recovery_min = max(0.0, rng.gauss(150, 50))
         out["daily_stress"].append({
             "id": f"daily_stress-{day}",
             "day": day.isoformat(),
-            "stress_high": stress_high,
-            "recovery_high": int(max(0, rng.gauss(150, 50))),
-            "day_summary": "stressful" if stress_high > 130 else "normal" if stress_high > 40 else "restored",
+            "stress_high": int(stress_min * 60),
+            "recovery_high": int(recovery_min * 60),
+            "day_summary": (
+                "stressful" if stress_min > 130 else "normal" if stress_min > 40 else "restored"
+            ),
         })
 
         out["daily_spo2"].append({
@@ -241,7 +245,7 @@ def generate(days: int = 120, end: date | None = None, seed: int = 7) -> dict[st
             "contributors": {
                 "sleep_recovery": round(max(10, min(100, sleep_score + rng.gauss(0, 6))), 1),
                 "daytime_recovery": round(max(10, min(100, rng.gauss(72, 12))), 1),
-                "stress": round(max(10, min(100, 100 - stress_high * 0.35)), 1),
+                "stress": round(max(10, min(100, 100 - stress_min * 0.35)), 1),
             },
         })
 

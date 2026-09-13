@@ -196,9 +196,18 @@
     var lo = bounds[0], hi = bounds[1];
     var needsLabelRoom = spec.series.length > 1;
     var hasTarget = spec.target !== undefined && spec.target !== null;
+    // Size the right gutter to the widest end-label so none can be clipped.
+    var labelGutter = 16;
+    if (needsLabelRoom) {
+      spec.series.forEach(function (s) {
+        labelGutter = Math.max(labelGutter, gutterFor(s.short || s.label));
+      });
+    } else if (hasTarget) {
+      labelGutter = gutterFor(spec.targetLabel || "target");
+    }
     var f = frame(host, {
       height: spec.height || 226,
-      padRight: needsLabelRoom ? 52 : (hasTarget ? gutterFor(spec.targetLabel || "target") : 16),
+      padRight: labelGutter,
       label: spec.label
     });
     yAxis(f, lo, hi, spec.yFmt);

@@ -240,7 +240,7 @@ cd oura-dashboard
 python -m pytest -q
 ```
 
-166 tests, no network access and no credentials required — the API is faked at
+176 tests, no network access and no credentials required — the API is faked at
 the client boundary and the rules are driven by constructed histories.
 
 ## Notes

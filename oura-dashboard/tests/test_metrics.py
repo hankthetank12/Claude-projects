@@ -154,17 +154,117 @@ def test_non_numeric_values_are_treated_as_missing():
     assert row.activity_score is None
 
 
-def test_stress_seconds_are_converted_but_minutes_are_left_alone():
-    """The stress endpoint reports seconds; small values are already minutes."""
-    seconds = history_with(daily_stress=[
+def test_stress_is_always_seconds():
+    """The schema documents both fields "in seconds" — there is no ambiguity."""
+    history = history_with(daily_stress=[
         {"id": "s", "day": "2026-09-10", "stress_high": 3600, "recovery_high": 7200}
     ])
-    row = build_rows(seconds)[0]
+    row = build_rows(history)[0]
     assert row.stress_high_min == 60.0
     assert row.recovery_high_min == 120.0
 
-    minutes = history_with(daily_stress=[
-        {"id": "s", "day": "2026-09-10", "stress_high": 90, "recovery_high": 120}
+
+def test_small_stress_values_are_still_seconds():
+    """A short stressed spell is 4 minutes, not 4 hours."""
+    history = history_with(daily_stress=[
+        {"id": "s", "day": "2026-09-10", "stress_high": 240, "recovery_high": 120}
     ])
-    row = build_rows(minutes)[0]
-    assert row.stress_high_min == 90
+    row = build_rows(history)[0]
+    assert row.stress_high_min == 4.0
+    assert row.recovery_high_min == 2.0
+
+
+def test_missing_stress_stays_none():
+    history = history_with(daily_stress=[
+        {"id": "s", "day": "2026-09-10", "stress_high": None, "recovery_high": None}
+    ])
+    row = build_rows(history)[0]
+    assert row.stress_high_min is None
+    assert row.recovery_high_min is None
+
+
+# -- sleep period types (PublicSleepType) ------------------------------
+def test_a_deleted_sleep_period_is_ignored():
+    """The user deleted it, so it must not be read as the night."""
+    history = history_with(sleep=[
+        {"id": "d", "day": "2026-09-10", "type": "deleted",
+         "total_sleep_duration": 36000, "average_hrv": 99},
+        {"id": "n", "day": "2026-09-10", "type": "long_sleep",
+         "total_sleep_duration": 25200, "average_hrv": 55},
+    ])
+    row = build_rows(history)[0]
+    assert row.total_sleep_h == 7.0
+    assert row.avg_hrv == 55
+    assert row.nap_h == 0.0
+
+
+def test_a_rest_period_is_ignored():
+    """`rest` is falsely detected sleep the user rejected."""
+    history = history_with(sleep=[
+        {"id": "r", "day": "2026-09-10", "type": "rest",
+         "total_sleep_duration": 7200, "average_hrv": 99},
+        {"id": "n", "day": "2026-09-10", "type": "long_sleep",
+         "total_sleep_duration": 25200, "average_hrv": 55},
+    ])
+    row = build_rows(history)[0]
+    assert row.avg_hrv == 55
+    assert row.nap_h == 0.0
+
+
+def test_a_day_of_nothing_but_discarded_periods_has_no_sleep():
+    history = history_with(sleep=[
+        {"id": "r", "day": "2026-09-10", "type": "rest", "total_sleep_duration": 7200},
+        {"id": "d", "day": "2026-09-10", "type": "deleted", "total_sleep_duration": 3600},
+    ])
+    rows = build_rows(history)
+    assert rows == [] or rows[0].total_sleep_h is None
+
+
+def test_a_confirmed_short_sleep_counts_as_a_nap():
+    """`sleep` is capped at 3h by definition, so it is not the night."""
+    history = history_with(sleep=[
+        {"id": "p", "day": "2026-09-10", "type": "sleep", "total_sleep_duration": 5400},
+        {"id": "n", "day": "2026-09-10", "type": "long_sleep",
+         "total_sleep_duration": 25200},
+    ])
+    row = build_rows(history)[0]
+    assert row.total_sleep_h == 7.0
+    assert row.nap_h == 1.5
+
+
+def test_a_nap_only_day_promotes_the_longest_nap():
+    """Better to report the sleep that happened than to show a missing night."""
+    history = history_with(sleep=[
+        {"id": "a", "day": "2026-09-10", "type": "sleep", "total_sleep_duration": 3600},
+        {"id": "b", "day": "2026-09-10", "type": "late_nap", "total_sleep_duration": 7200},
+    ])
+    row = build_rows(history)[0]
+    assert row.total_sleep_h == 2.0     # the 2 h period becomes the night
+    assert row.nap_h == 1.0             # the 1 h period remains a nap
+
+
+def test_a_second_long_sleep_is_counted_as_extra_sleep():
+    history = history_with(sleep=[
+        {"id": "a", "day": "2026-09-10", "type": "long_sleep",
+         "total_sleep_duration": 21600},
+        {"id": "b", "day": "2026-09-10", "type": "long_sleep",
+         "total_sleep_duration": 3600},
+    ])
+    row = build_rows(history)[0]
+    assert row.total_sleep_h == 6.0
+    assert row.nap_h == 1.0
+
+
+def test_an_unknown_future_type_is_kept_rather_than_dropped():
+    history = history_with(sleep=[
+        {"id": "x", "day": "2026-09-10", "type": "some_new_type",
+         "total_sleep_duration": 25200},
+    ])
+    assert build_rows(history)[0].total_sleep_h == 7.0
+
+
+def test_a_missing_type_is_treated_as_the_main_sleep():
+    history = history_with(sleep=[
+        {"id": "x", "day": "2026-09-10", "total_sleep_duration": 25200},
+    ])
+    assert build_rows(history)[0].total_sleep_h == 7.0
