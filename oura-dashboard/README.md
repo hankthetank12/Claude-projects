@@ -35,7 +35,40 @@ find the module:
 cd oura-dashboard/src && python -m oura_dashboard demo
 ```
 
-## Setup
+## Setup — the short version
+
+```bash
+cd oura-dashboard
+./setup.sh
+```
+
+The script walks you through the four things only you can create, then does
+everything else itself: writes `.env`, uploads all the GitHub secrets, turns on
+Pages, pulls your history, builds the dashboard, and verifies the whole path
+end to end. It is safe to re-run and will offer your existing answers as
+defaults.
+
+You will need, in this order:
+
+| What | Where | Notes |
+|---|---|---|
+| An Oura application | <https://cloud.ouraring.com/oauth/applications> | Add redirect URI `http://localhost:8731/callback` exactly |
+| A Gmail App Password | <https://myaccount.google.com/apppasswords> | 16 characters, not your account password; needs 2-Step Verification |
+| Browser consent | the script opens it | One click to connect your Oura account |
+| A GitHub token | <https://github.com/settings/personal-access-tokens/new> | This repo only, **Secrets: Read and write** — see the section below for why |
+
+The GitHub CLI (`gh`) makes the script able to upload secrets for you. Without
+it everything still works; the script prints the secrets to paste in by hand.
+
+Check it whenever you want:
+
+```bash
+cd src && python -m oura_dashboard check --email
+```
+
+## Setup — by hand
+
+Skip this if `setup.sh` worked.
 
 ### 1. Register an Oura application
 
@@ -43,8 +76,7 @@ Oura **deprecated personal access tokens** — new ones can no longer be created
 and existing ones will stop working — so authentication goes through OAuth2.
 
 Create an application at <https://cloud.ouraring.com/oauth/applications> and
-note its **client ID** and **client secret**. Add this exact redirect URI to
-the application:
+note its **client ID** and **client secret**. Add this exact redirect URI:
 
 ```
 http://localhost:8731/callback
@@ -56,7 +88,6 @@ Oura matches redirect URIs exactly, so if you use a different port (via
 ### 2. Local configuration
 
 ```bash
-cd oura-dashboard
 cp .env.example .env
 # fill in OURA_CLIENT_ID and OURA_CLIENT_SECRET
 ```
@@ -69,7 +100,7 @@ cp .env.example .env
 | `OURA_TOKEN` | A legacy personal access token. Still honoured if you have one, and takes precedence. |
 | `MAIL_TO` | Where the brief is sent. |
 | `MAIL_FROM` | The Gmail address it is sent from. |
-| `GMAIL_APP_PASSWORD` | A Gmail **App Password** (see below). |
+| `GMAIL_APP_PASSWORD` | A Gmail **App Password**. |
 | `OURA_SLEEP_NEED_HOURS` | Your nightly sleep target. Default `8.0`. |
 | `OURA_TIMEZONE` | Informational; Oura returns local timestamps. |
 | `OURA_SANDBOX` | `1` to hit Oura's sandbox (fake data, any token works). |
@@ -77,29 +108,28 @@ cp .env.example .env
 ### 3. Grant access
 
 ```bash
-python -m oura_dashboard authorize
+cd src && python -m oura_dashboard authorize
 ```
 
-This opens your browser, captures the redirect on `localhost`, exchanges the
-code, and saves the token set to `data/.oauth.json` (owner-readable only, and
+Opens your browser, captures the redirect on `localhost`, exchanges the code,
+and saves the token set to `data/.oauth.json` (owner-readable only, and
 gitignored). It then prints the refresh token to paste into GitHub.
 
-Add `--no-browser` on a headless machine to print the URL instead, or
-`--port N` to use a different callback port.
+Add `--no-browser` on a headless machine, or `--port N` for a different port.
 
 ### 4. Gmail App Password
 
-Gmail blocks normal sign-in over SMTP, so the brief needs an App Password —
-a 16-character code, not your account password. Create one at
-<https://myaccount.google.com/apppasswords> (requires 2-Step Verification).
+Create one at <https://myaccount.google.com/apppasswords> (requires 2-Step
+Verification) — a 16-character code, not your account password.
 
 ### 5. First sync
 
 ```bash
-python -m oura_dashboard sync --days 120   # pulls history into data/history.json
-python -m oura_dashboard build             # writes out/index.html
-python -m oura_dashboard brief             # prints the brief without sending
-python -m oura_dashboard send --dry-run    # same, in send format
+cd src
+python -m oura_dashboard check             # verify everything is wired up
+python -m oura_dashboard sync --days 120   # pull history into data/history.json
+python -m oura_dashboard build             # write out/index.html
+python -m oura_dashboard brief             # print the brief without sending
 ```
 
 ## About those single-use refresh tokens
@@ -133,6 +163,8 @@ re-run `oura-dashboard authorize` and update the secret.
 `.github/workflows/oura-daily.yml` runs every morning: it syncs, rotates the
 refresh token, commits the updated history, rebuilds the dashboard, publishes
 it to GitHub Pages, and emails you the brief.
+
+`./setup.sh` sets all of this up for you. To do it by hand:
 
 **1. Add the Oura and mail secrets** under
 **Settings → Secrets and variables → Actions → Secrets**:
@@ -175,7 +207,16 @@ HTML attachment (`--attach-dashboard`), and the publish job is marked
 brief.
 
 Run it by hand any time from the **Actions** tab (`Run workflow`), optionally
-with "Sync and build only" ticked to skip the email.
+with "Sync and build only" ticked to skip the email. Or from the terminal:
+
+```bash
+gh workflow run "Oura morning brief"
+```
+
+**Which branch runs it.** GitHub only fires `schedule` triggers from the
+repository's **default branch**, so if you move this project onto another
+branch later, merge it into the default branch or the morning brief silently
+stops arriving.
 
 **Scopes requested.** `personal`, `daily`, `heartrate`, `workout`, `tag`,
 `session`, `spo2Daily` — `daily` covers all the `daily_*` documents (sleep,
@@ -224,6 +265,7 @@ These are pattern observations from your own data, not medical advice.
 | Command | What it does |
 |---|---|
 | `authorize [--port N] [--no-browser]` | Grant access in the browser, save a refresh token |
+| `check [--email]` | Verify credentials, API access and mail settings |
 | `sync [--days N]` | Fetch from the API and upsert into `data/history.json` |
 | `build` | Regenerate `out/index.html` |
 | `brief [--html] [--url URL]` | Print the brief without sending |
@@ -240,7 +282,7 @@ cd oura-dashboard
 python -m pytest -q
 ```
 
-176 tests, no network access and no credentials required — the API is faked at
+182 tests, no network access and no credentials required — the API is faked at
 the client boundary and the rules are driven by constructed histories.
 
 ## Notes

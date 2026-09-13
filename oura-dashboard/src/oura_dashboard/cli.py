@@ -164,6 +164,106 @@ def _send(
     print(f"Morning brief sent to {config.mail_to}: {subject}")
 
 
+def _check(config: Config, send_test: bool) -> int:
+    """Verify everything the daily job needs, and say what is missing.
+
+    Better to find a broken scope or a rejected app password now than at 7am.
+    """
+    ok = True
+
+    def line(good: bool, label: str, detail: str = "") -> None:
+        nonlocal ok
+        mark = "  ok  " if good else " FAIL "
+        print(f"[{mark}] {label}" + (f" — {detail}" if detail else ""))
+        if not good:
+            ok = False
+
+    # 1. Credentials
+    if config.token:
+        line(True, "Oura credentials", "using the legacy personal access token")
+    elif config.client_id and config.client_secret:
+        line(True, "Oura credentials", "OAuth client configured")
+    else:
+        line(False, "Oura credentials",
+             "set OURA_CLIENT_ID and OURA_CLIENT_SECRET, then run `authorize`")
+        print("\nFix the above and run `oura-dashboard check` again.")
+        return 1
+
+    # 2. A usable access token
+    credentials = _credentials(config)
+    try:
+        token = credentials.access_token()
+        line(bool(token), "Access token", "obtained")
+    except (auth.OAuthError, client.OuraError) as exc:
+        line(False, "Access token", str(exc)[:220])
+        print("\nFix the above and run `oura-dashboard check` again.")
+        return 1
+    for notice in credentials.notices:
+        line(False, "Token persistence", notice[:220])
+
+    # 3. The API actually answers, which also proves the scopes
+    api = client.OuraClient(token, sandbox=config.sandbox)
+    start, end = client.default_window(7)
+    reachable = 0
+    for endpoint in ("daily_sleep", "daily_readiness", "daily_activity"):
+        try:
+            documents = api.fetch(endpoint, start, end)
+            reachable += 1
+            line(True, f"Endpoint {endpoint}", f"{len(documents)} documents in the last 7 days")
+        except client.OuraError as exc:
+            line(False, f"Endpoint {endpoint}", str(exc)[:180])
+    if not reachable:
+        print("\nNo endpoint responded. Re-run `authorize` and grant every scope.")
+        return 1
+
+    # 4. Mail
+    if config.can_send_mail:
+        line(True, "Email settings", f"{config.mail_from} -> {config.mail_to}")
+    else:
+        missing = [
+            name for name, value in (
+                ("MAIL_TO", config.mail_to),
+                ("MAIL_FROM", config.mail_from),
+                ("GMAIL_APP_PASSWORD", config.gmail_app_password),
+            ) if not value
+        ]
+        line(False, "Email settings", f"missing {', '.join(missing)}")
+
+    # 5. Local history
+    history = store.History.load(_history_path(config))
+    rows = metrics.build_rows(history)
+    if rows:
+        line(True, "Local history",
+             f"{len(rows)} days, {rows[0].day} to {rows[-1].day}")
+    else:
+        line(True, "Local history", "empty — run `sync` to fill it")
+
+    # 6. Optional live send
+    if send_test and config.can_send_mail:
+        try:
+            message = mailer.build_message(
+                subject="Oura dashboard test",
+                sender=config.mail_from or "",
+                recipient=config.mail_to or "",
+                text_body=(
+                    "This is a test from `oura-dashboard check`.\n"
+                    "If you are reading it, the morning brief can reach you."
+                ),
+            )
+            mailer.send(
+                message,
+                username=config.mail_from or "",
+                password=config.gmail_app_password or "",
+            )
+            line(True, "Test email", f"sent to {config.mail_to}")
+        except mailer.MailError as exc:
+            line(False, "Test email", str(exc)[:220])
+
+    print()
+    print("Everything checks out." if ok else "Some checks failed — see above.")
+    return 0 if ok else 1
+
+
 def _authorize(config: Config, port: int, no_browser: bool) -> None:
     if not (config.client_id and config.client_secret):
         raise SystemExit(
@@ -274,6 +374,13 @@ def main(argv: list[str] | None = None) -> int:
         "--no-browser", action="store_true", help="print the URL instead of opening it"
     )
 
+    p_check = sub.add_parser(
+        "check", help="verify credentials, API access and email settings"
+    )
+    p_check.add_argument(
+        "--email", action="store_true", help="also send a test email"
+    )
+
     p_demo = sub.add_parser("demo", help="build from synthetic sample data")
     p_demo.add_argument("--days", type=int, default=120)
 
@@ -298,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(brief.render_text(result, found, dashboard_url=args.url))
         elif args.command == "authorize":
             _authorize(config, args.port, args.no_browser)
+        elif args.command == "check":
+            return _check(config, args.email)
         elif args.command == "send":
             _send(config, args.url, args.dry_run, args.attach_dashboard)
         elif args.command == "morning":

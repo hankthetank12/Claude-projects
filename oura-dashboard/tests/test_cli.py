@@ -356,3 +356,95 @@ def test_the_local_token_file_is_not_inside_the_history(env, monkeypatch):
     config = Config.from_env()
     assert config.token_file.name == ".oauth.json"
     assert config.token_file != config.data_dir / "history.json"
+
+
+# -- the check command -------------------------------------------------
+def test_check_fails_clearly_without_credentials(env, capsys):
+    assert cli.main(["check"]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    assert "OURA_CLIENT_ID" in out
+
+
+def test_check_reports_every_section_when_configured(env, monkeypatch, capsys):
+    monkeypatch.setenv("OURA_TOKEN", "pat")
+    monkeypatch.setenv("MAIL_TO", "a@b.c")
+    monkeypatch.setenv("MAIL_FROM", "d@e.f")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "pw")
+    monkeypatch.setattr(
+        "oura_dashboard.client.OuraClient.fetch",
+        lambda self, endpoint, start=None, end=None: [{"id": "x"}],
+    )
+    assert cli.main(["check"]) == 0
+    out = capsys.readouterr().out
+    for label in ("Oura credentials", "Access token", "Endpoint daily_sleep",
+                  "Email settings", "Local history"):
+        assert label in out
+    assert "FAIL" not in out
+    assert "Everything checks out" in out
+
+
+def test_check_flags_missing_mail_settings(env, monkeypatch, capsys):
+    monkeypatch.setenv("OURA_TOKEN", "pat")
+    monkeypatch.setattr(
+        "oura_dashboard.client.OuraClient.fetch",
+        lambda self, endpoint, start=None, end=None: [],
+    )
+    assert cli.main(["check"]) == 1
+    out = capsys.readouterr().out
+    assert "GMAIL_APP_PASSWORD" in out
+
+
+def test_check_can_send_a_test_email(env, monkeypatch, capsys):
+    monkeypatch.setenv("OURA_TOKEN", "pat")
+    monkeypatch.setenv("MAIL_TO", "a@b.c")
+    monkeypatch.setenv("MAIL_FROM", "d@e.f")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "pw")
+    monkeypatch.setattr(
+        "oura_dashboard.client.OuraClient.fetch",
+        lambda self, endpoint, start=None, end=None: [{"id": "x"}],
+    )
+    sent = {}
+    monkeypatch.setattr(
+        "oura_dashboard.mailer.send",
+        lambda message, **kw: sent.update({"subject": message["Subject"]}),
+    )
+    assert cli.main(["check", "--email"]) == 0
+    assert sent["subject"] == "Oura dashboard test"
+    assert "Test email" in capsys.readouterr().out
+
+
+def test_check_surfaces_a_rejected_app_password(env, monkeypatch, capsys):
+    """Better to learn the password is wrong now than at 7am tomorrow."""
+    from oura_dashboard import mailer
+
+    monkeypatch.setenv("OURA_TOKEN", "pat")
+    monkeypatch.setenv("MAIL_TO", "a@b.c")
+    monkeypatch.setenv("MAIL_FROM", "d@e.f")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "wrong")
+    monkeypatch.setattr(
+        "oura_dashboard.client.OuraClient.fetch",
+        lambda self, endpoint, start=None, end=None: [{"id": "x"}],
+    )
+
+    def refuse(message, **kwargs):
+        raise mailer.MailError("Gmail rejected the login")
+
+    monkeypatch.setattr("oura_dashboard.mailer.send", refuse)
+    assert cli.main(["check", "--email"]) == 1
+    assert "Gmail rejected the login" in capsys.readouterr().out
+
+
+def test_check_reports_an_unreachable_api(env, monkeypatch, capsys):
+    from oura_dashboard import client as client_module
+
+    monkeypatch.setenv("OURA_TOKEN", "pat")
+
+    def boom(self, endpoint, start=None, end=None):
+        raise client_module.OuraError("403 forbidden")
+
+    monkeypatch.setattr("oura_dashboard.client.OuraClient.fetch", boom)
+    assert cli.main(["check"]) == 1
+    out = capsys.readouterr().out
+    assert "403 forbidden" in out
+    assert "grant every scope" in out
