@@ -63,7 +63,7 @@ def build(lots: list[Lot], now: int, days: int, include_majors: bool = False,
 
 # Each further lot from the same house ranks this much lower, up to the cap, so a
 # dealer with forty diamond Rolexes doesn't bury every other house.
-HOUSE_FATIGUE, FATIGUE_CAP = 2.0, 20.0
+HOUSE_FATIGUE, FATIGUE_CAP = 4.0, 30.0
 
 
 def rank(lots: list[Lot]) -> list[Lot]:

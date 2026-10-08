@@ -99,7 +99,7 @@ On a typical run, about 80% of watch-titled lots are rejected.
 
 The page sorts best-first by default, or by closing time. A minimum-score
 slider lets you raise the bar further. One dealer can't monopolize the top:
-each further lot from the same house sorts 2 points lower, up to 20. This
+each further lot from the same house sorts 4 points lower, up to 30. This
 only affects order; the score shown stays the same. Add `--keep-garbage`
 to score everything without dropping anything.
 
