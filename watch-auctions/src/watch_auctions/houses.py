@@ -13,6 +13,7 @@ REGISTRY = Path(__file__).with_name("houses.json")
 # Fingerprints in a house site's HTML -> which engine (and so which adapter) runs it.
 ENGINES = [
     ("auctionmethod", re.compile(r"auctionmethod\.com|d3sachi1veog95\.cloudfront\.net", re.I)),
+    ("bidwrangler", re.compile(r"bidwrangler|bwwsplatform", re.I)),
     ("bidspirit", re.compile(r"bidspirit", re.I)),
     ("hibid", re.compile(r"hibid\.com", re.I)),
     ("invaluable", re.compile(r"image\.invaluable\.com|invaluable\.com/catalog", re.I)),
@@ -23,7 +24,7 @@ ENGINES = [
 ]
 # Engines whose lots are already covered by a whole-platform adapter.
 COVERED = {"bidspirit", "invaluable", "liveauctioneers"}
-SUPPORTED = {"auctionmethod"}
+SUPPORTED = {"auctionmethod", "bidwrangler"}
 
 
 def load() -> list[dict]:

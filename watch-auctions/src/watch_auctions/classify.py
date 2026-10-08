@@ -11,7 +11,7 @@ BRANDS = [
     "Piaget", "Ulysse Nardin", "Girard-Perregaux", "Bell & Ross", "Grand Seiko",
     "Seiko", "Longines", "Tissot", "Hamilton", "Oris", "Rado", "Movado", "Bulova",
     "Gruen", "Elgin", "Waltham", "Hampden", "Illinois Watch", "Bunn Special", "South Bend",
-    "Junghans", "Westclox", "Tourneau", "Gallet", "Lemania", "Ingersoll", "Glycine", "Favre-Leuba", "Mühle", "Fendi", "Universal Geneve", "Eterna",
+    "Junghans", "Westclox", "Tourneau", "Gallet", "Lemania", "Nivada", "Accutron", "Ingersoll", "Glycine", "Favre-Leuba", "Mühle", "Fendi", "Universal Geneve", "Eterna",
     "Baume & Mercier", "Montblanc", "Bvlgari", "Bulgari", "Hermes", "Chanel",
     "Tiffany", "Gucci", "Corum", "Ebel", "Concord", "Raymond Weil", "Frederique Constant",
     "Franck Muller", "Jules Jurgensen", "Le Coultre", "LeCoultre", "Wittnauer",
@@ -45,7 +45,7 @@ NOT_A_WATCH = re.compile(
 # Without the word "watch", a brand name needs watch-like context: a reference
 # number, case metal, movement, size. Keeps "Rolex 16610 steel" and drops an
 # "Omega" designer lamp or Zenith tobacco pipes.
-WATCH_CONTEXT = re.compile(r"\b(ref\.?|reference|\d{3,6}[a-z]{0,4}|automatic|quartz|manual wind|steel|ss|"
+WATCH_CONTEXT = re.compile(r"\b(ref\.?|reference|(?!(?:19|20)\d\d\b)\d{3,6}[a-z]{0,4}|automatic|quartz|manual wind|steel|ss|"
                            r"18k|14k|9k|gold|platinum|titanium|\d{2} ?mm|dial|bezel|chrono\w*|jewels?|"
                            r"oyster|perpetual|men'?s|ladies'?|women'?s|box (and|&) pap\w*|papers|full set|"
                            r"big bang|aquanaut|constellation|de ville|diver)\b")

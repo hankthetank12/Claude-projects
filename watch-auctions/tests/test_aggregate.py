@@ -33,12 +33,14 @@ def test_live_sale_in_progress_is_kept():
     assert aggregate.build([l], NOW, 30)
 
 
-def test_sorted_by_close_time_and_brand_filled():
-    lots = [lot(source_id="b", lot_number="1", ends_at=NOW + 9000),
-            lot(source_id="a", lot_number="2", title="Omega Seamaster", ends_at=NOW + 5000)]
+def test_ranked_by_quality_then_close_time_and_brand_filled():
+    lots = [lot(source_id="soon", lot_number="1", title="Omega Seamaster Automatic", ends_at=NOW + 5000),
+            lot(source_id="best", lot_number="2", title="Rolex Datejust 16234 18K", ends_at=NOW + 9000),
+            lot(source_id="late", lot_number="3", title="Omega Seamaster Automatic", house="Other", ends_at=NOW + 9000)]
     out = aggregate.build(lots, NOW, 30)
-    assert [l.source_id for l in out] == ["a", "b"]
-    assert out[0].brand == "Omega"
+    # "soon" shares a house with "best", so house fatigue drops it below "late".
+    assert [l.source_id for l in out] == ["best", "late", "soon"]
+    assert out[1].brand == "Omega" and out[0].score > out[1].score
 
 
 def test_sample_data_builds():

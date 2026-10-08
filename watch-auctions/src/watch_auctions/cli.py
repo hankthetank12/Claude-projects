@@ -15,7 +15,7 @@ def _log(*a, **k):
     print(*a, **k)
 
 
-def _write(out: Path, lots: list[Lot]) -> None:
+def _write(out: Path, lots: list[Lot], rejected: list | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     prev_path = out / "lots.json"
     seen: set[str] = set()
@@ -27,9 +27,15 @@ def _write(out: Path, lots: list[Lot]) -> None:
     ids = {f"{l.source}:{l.source_id}" for l in lots}
     new_ids = ids - seen if seen else set()
     prev_path.write_text(json.dumps([l.to_dict() for l in lots], indent=1))
+    if rejected is not None:
+        # What the quality filter threw out and why, for auditing it.
+        (out / "rejected.json").write_text(json.dumps(
+            [{"why": why, "title": l.title, "house": l.house, "source": l.source, "url": l.url}
+             for l, why in rejected], indent=1))
     (out / "index.html").write_text(render.render(lots, new_ids))
     houses = len({l.house for l in lots})
-    print(f"{len(lots)} watch lots from {houses} houses ({len(new_ids)} new) -> {out / 'index.html'}")
+    dropped = f", {len(rejected)} junk lots dropped" if rejected else ""
+    print(f"{len(lots)} watch lots from {houses} houses ({len(new_ids)} new{dropped}) -> {out / 'index.html'}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--max-pages", type=int, default=60, help="LiveAuctioneers page cap (120 lots/page)")
     f.add_argument("--max-house-lots", type=int, default=400,
                    help="skip LiveAuctioneers sellers with more active watch lots than this (bulk dealers)")
+    f.add_argument("--keep-garbage", action="store_true",
+                   help="don't drop low-quality lots (fashion brands, bulk lots, parts); still scored")
     f.add_argument("--include-majors", action="store_true", help="keep Bonhams, Christie's, etc.")
     f.add_argument("--out", type=Path, default=Path("out"))
     h = sub.add_parser("add-house", help="register a house's own bidding site (detects its engine)")
@@ -67,8 +75,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{h['name']:<30} {h['engine']:<14} {h['url']}")
         return 0
     if a.cmd == "demo":
-        lots = aggregate.build(sample.lots(now), now, 30)
-        _write(a.out, lots)
+        rejected: list = []
+        lots = aggregate.build(sample.lots(now), now, 30, rejected=rejected)
+        _write(a.out, lots, rejected)
         return 0
 
     raw: list[Lot] = []
@@ -86,5 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     if not raw:
         print("no lots fetched from any source", file=sys.stderr)
         return 1
-    _write(a.out, aggregate.build(raw, now, a.days, include_majors=a.include_majors))
+    rejected: list = []
+    lots = aggregate.build(raw, now, a.days, include_majors=a.include_majors,
+                           keep_garbage=a.keep_garbage, rejected=rejected)
+    _write(a.out, lots, rejected)
     return 0

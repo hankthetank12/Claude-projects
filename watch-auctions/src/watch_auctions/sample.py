@@ -6,12 +6,13 @@ from watch_auctions.models import Lot
 _ROWS = [
     ("Rolex Submariner 16610 Stainless Steel Automatic", "Kodner Galleries", "Dania Beach", "FL", 1, 4000, 6000),
     ("Omega Speedmaster Professional 145.022 Moonwatch", "Rachel Davis Fine Arts", "Cleveland", "OH", 2, 2500, 3500),
-    ("Vintage Hamilton 14K Gold Filled Wrist Watch", "Lark Mountain Auction Company", "Waynesville", "NC", 1, 100, 200),
+    ("Vintage Hamilton 14K Solid Gold Manual Wind Wrist Watch", "Lark Mountain Auction Company", "Waynesville", "NC", 1, 100, 200),
     ("Tudor Black Bay 58 Ref. 79030N", "Gold Coast Auctions", "Fort Lauderdale", "FL", 3, 2200, 2800),
     ("Elgin 14K Hunter Case Pocket Watch c. 1910", "Davis Brothers Auction", "Pinson", "AL", 4, 300, 500),
     ("Seiko 6139-6002 Pogue Chronograph", "Hotspot Auctions", "Kalamazoo", "MI", 2, 250, 400),
     ("Cartier Tank Francaise Ladies 18K", "Akiba Galleries", "Hollywood", "FL", 5, 3000, 5000),
     ("Lot of 12 Watch Bands Only", "Thriftiques of Iowa", "Ankeny", "IA", 1, 10, 20),
+    ("Fossil Men's Chronograph Watch FS4656", "Thriftiques of Iowa", "Ankeny", "IA", 2, 20, 40),
     ("Patek Philippe Calatrava 3919 18K Yellow Gold", "Bonhams", "New York", "NY", 6, 12000, 18000),
 ]
 

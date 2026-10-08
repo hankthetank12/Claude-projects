@@ -27,6 +27,9 @@ class Lot:
     bid_count: int = 0
     brand: str = ""
     also_on: list[dict] = field(default_factory=list)  # same lot cross-listed elsewhere
+    score: int = 0  # collector interest, 0-100 (see quality.py)
+    reasons: list[str] = field(default_factory=list)
+    rank: float = 0  # score adjusted so one house can't take over the top of the page
 
     def to_dict(self) -> dict:
         return asdict(self)

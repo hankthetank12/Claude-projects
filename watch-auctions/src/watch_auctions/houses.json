@@ -5,5 +5,159 @@
     "engine": "auctionmethod",
     "city": "Agoura Hills",
     "state": "CA"
+  },
+  {
+    "name": "Cabin Fever Auctions",
+    "url": "https://cabinfeverauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Southern Auction Solutions",
+    "url": "https://southernauctionsolutions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Generations Real Estate & Auction",
+    "url": "https://bid.genkc.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "The Consignors Online Auction House",
+    "url": "https://bid.theconsignors.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Alderfer Auction",
+    "url": "https://bid.alderferauction.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Alaska Premier Auctions & Appraisals",
+    "url": "https://bid.alaskapremierauctions.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Hansen Auction Group",
+    "url": "https://bid.hansenauctiongroup.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Wiregrass Auction Group",
+    "url": "https://wiregrassauctiongroup.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Green Real Estate & Auction Co.",
+    "url": "https://greenrealestate-auction.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Allied Auctioneers",
+    "url": "https://alliedauctioneersva.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Joe R. Pyle Complete Auction & Realty",
+    "url": "https://joerpyleauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "PA Auction Center",
+    "url": "https://paauctioncenter.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Rogers Auctioneers",
+    "url": "https://rogersauction.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Jack Nitz Auctions",
+    "url": "https://nitzauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Mountain Valley Auctions",
+    "url": "https://mountainvalleyauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Bullseye Auction & Appraisal",
+    "url": "https://bullseyeauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Target Auction Company",
+    "url": "https://targetauction.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "The Swicegood Group",
+    "url": "https://bid.theswicegoodgroup.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Walnut Hill Auctions",
+    "url": "https://walnuthillauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Bravo Auctioneers",
+    "url": "https://bravoauctioneers.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Massart Auctioneers",
+    "url": "https://massartauctioneers.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
+  },
+  {
+    "name": "Preferred Auctions",
+    "url": "https://preferredauctions.bidwrangler.com",
+    "engine": "bidwrangler",
+    "city": "",
+    "state": ""
   }
 ]

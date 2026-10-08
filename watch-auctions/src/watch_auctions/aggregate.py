@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from watch_auctions.classify import detect_brand, is_major_house, is_watch
+from watch_auctions import quality
 from watch_auctions.models import Lot
 
 
@@ -28,7 +29,8 @@ def dedupe_key(lot: Lot) -> str:
 CATEGORY_FILTERED = {"liveauctioneers", "invaluable", "shopgoodwill"}
 
 
-def build(lots: list[Lot], now: int, days: int, include_majors: bool = False) -> list[Lot]:
+def build(lots: list[Lot], now: int, days: int, include_majors: bool = False,
+          keep_garbage: bool = False, rejected: list | None = None) -> list[Lot]:
     horizon = now + days * 86400
     merged: dict[str, Lot] = {}
     for lot in lots:
@@ -43,6 +45,12 @@ def build(lots: list[Lot], now: int, days: int, include_majors: bool = False) ->
         if lot.starts_at and lot.starts_at > horizon:
             continue
         lot.brand = lot.brand or detect_brand(lot.title)
+        verdict = quality.score(lot)
+        if verdict.rejected and not keep_garbage:
+            if rejected is not None:
+                rejected.append((lot, verdict.rejected))
+            continue
+        lot.score, lot.reasons = verdict.score, verdict.reasons
         key = dedupe_key(lot)
         if key in merged:
             first = merged[key]
@@ -50,4 +58,20 @@ def build(lots: list[Lot], now: int, days: int, include_majors: bool = False) ->
                 first.also_on.append({"source": lot.source, "url": lot.url})
             continue
         merged[key] = lot
-    return sorted(merged.values(), key=lambda l: (l.ends_at or l.starts_at or 2**40, l.house, l.lot_number))
+    return rank(list(merged.values()))
+
+
+# Each further lot from the same house ranks this much lower, up to the cap, so a
+# dealer with forty diamond Rolexes doesn't bury every other house.
+HOUSE_FATIGUE, FATIGUE_CAP = 2.0, 20.0
+
+
+def rank(lots: list[Lot]) -> list[Lot]:
+    """Best first; ties go to whatever closes sooner."""
+    lots.sort(key=lambda l: (-l.score, l.ends_at or l.starts_at or 2**40, l.house, l.lot_number))
+    seen: dict[str, int] = {}
+    for l in lots:
+        n = seen.get(l.house, 0)
+        l.rank = l.score - min(FATIGUE_CAP, HOUSE_FATIGUE * n)
+        seen[l.house] = n + 1
+    return sorted(lots, key=lambda l: (-l.rank, -l.score, l.ends_at or l.starts_at or 2**40))

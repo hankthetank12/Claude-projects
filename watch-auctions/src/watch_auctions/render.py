@@ -29,6 +29,8 @@ main{padding:12px 16px;max-width:1400px;margin:0 auto}
 .m{color:var(--mute);font-size:12px}.p{font-size:13px;margin-top:auto;padding-top:4px}.p b{color:var(--acc)}
 .tag{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-right:4px}
 .tag.new{color:var(--new);border-color:var(--new)}
+.score{display:inline-block;font-size:11px;font-weight:700;border-radius:4px;padding:0 5px;margin-right:4px;background:var(--acc);color:var(--card)}
+.why{color:var(--mute);font-size:11px}
 .empty{color:var(--mute);padding:40px 0;text-align:center}
 @media (max-width:560px){.grid{grid-template-columns:1fr 1fr;gap:8px}.t{font-size:13px}.f select{flex:1 1 40%}}
 </style></head><body>
@@ -39,6 +41,8 @@ main{padding:12px 16px;max-width:1400px;margin:0 auto}
 <select id="state"><option value="">All states</option></select>
 <select id="house"><option value="">All sellers</option></select>
 <select id="source"><option value="">All sources</option></select>
+<select id="sort"><option value="score">Best first</option><option value="time">Closing soonest</option></select>
+<label class="m">Min score <input type="range" id="minscore" min="25" max="90" step="5" value="25" style="vertical-align:middle;width:90px"> <b id="minval">25</b></label>
 <select id="when"><option value="">Any time</option><option value="1">Next 24h</option><option value="3">Next 3 days</option><option value="7">Next 7 days</option></select>
 <label class="m"><input type="checkbox" id="branded"> Known brands only</label>
 <label class="m"><input type="checkbox" id="onlynew"> New since last run</label>
@@ -60,22 +64,25 @@ function card(l){
   const verb=l.sale_type==="timed"?"Closes":"Sale";
   return `<a class="c" href="${esc(l.url)}" target="_blank" rel="noopener">
   ${l.image?`<img loading="lazy" src="${esc(l.image)}" alt="">`:`<img alt="">`}
-  <div class="b"><div>${l.is_new?'<span class="tag new">new</span>':""}${l.brand?`<span class="tag">${esc(l.brand)}</span>`:""}<span class="tag">${esc(l.sale_type)}</span></div>
+  <div class="b"><div><span class="score" title="collector-interest score">${l.score}</span>${l.is_new?'<span class="tag new">new</span>':""}${l.brand?`<span class="tag">${esc(l.brand)}</span>`:""}<span class="tag">${esc(l.sale_type)}</span></div>
   <div class="t">${esc(l.title)}</div>
   <div class="m">${esc(l.house)}${l.city||l.state?` · ${esc([l.city,l.state].filter(Boolean).join(", "))}`:""}</div>
   <div class="m">${verb} ${timeLabel(when(l))}${l.lot_number?` · Lot ${esc(l.lot_number)}`:""} · via ${esc(l.source)}${l.also_on.length?" +"+l.also_on.length:""}</div>
+  ${l.reasons.length?`<div class="why">${esc(l.reasons.join(" · "))}</div>`:""}
   <div class="p">${bid}${est?`<div class="m">${est}</div>`:""}</div></div></a>`}
 function render(){
-  const q=$("q").value.toLowerCase().trim(),b=$("brand").value,s=$("state").value,h=$("house").value,w=+$("when").value,nw=$("onlynew").checked,src=$("source").value,br=$("branded").checked;
+  const q=$("q").value.toLowerCase().trim(),b=$("brand").value,s=$("state").value,h=$("house").value,w=+$("when").value,nw=$("onlynew").checked,src=$("source").value,br=$("branded").checked,ms=+$("minscore").value,byScore=$("sort").value==="score";$("minval").textContent=ms;
   const lim=w?Date.now()/1000+w*86400:Infinity;
-  const rows=LOTS.filter(l=>(!b||l.brand===b)&&(!s||l.state===s)&&(!h||l.house===h)&&(!nw||l.is_new)&&(!src||l.source===src)&&(!br||l.brand)&&(when(l)||0)<=lim&&
+  const rows=LOTS.filter(l=>(!b||l.brand===b)&&(!s||l.state===s)&&(!h||l.house===h)&&(!nw||l.is_new)&&(!src||l.source===src)&&(!br||l.brand)&&l.score>=ms&&(when(l)||0)<=lim&&
     (!q||(l.title+" "+l.house+" "+l.sale_title).toLowerCase().includes(q)));
+  rows.sort(byScore?(a,b)=>b.rank-a.rank||b.score-a.score||(when(a)||9e9)-(when(b)||9e9):(a,b)=>(when(a)||9e9)-(when(b)||9e9));
   $("count").textContent=`${rows.length} lots`;
   if(!rows.length){$("list").innerHTML='<div class="empty">Nothing matches.</div>';return}
+  if(byScore){$("list").innerHTML=`<div class="grid">${rows.map(card).join("")}</div>`;return}
   let html="",day=null,open=false;
   for(const l of rows){const d=dayLabel(when(l));if(d!==day){if(open)html+="</div>";html+=`<div class="day">${d}</div><div class="grid">`;day=d;open=true}html+=card(l)}
   $("list").innerHTML=html+"</div>"}
-["q","brand","state","house","source","when","branded","onlynew"].forEach(id=>$(id).addEventListener("input",render));render();
+["q","brand","state","house","source","sort","minscore","when","branded","onlynew"].forEach(id=>$(id).addEventListener("input",render));render();
 </script></body></html>"""
 
 
