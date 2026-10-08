@@ -11,3 +11,4 @@ oura-dashboard/data/.oauth.json
 build/
 dist/
 oura-dashboard/out/
+watch-auctions/out/
