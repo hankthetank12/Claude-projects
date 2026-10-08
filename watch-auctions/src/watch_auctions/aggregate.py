@@ -23,11 +23,16 @@ def dedupe_key(lot: Lot) -> str:
     return f"{_house_key(lot.house)}|{_norm(lot.lot_number)}|{_norm(lot.title)[:50]}"
 
 
+# Sources whose query is already restricted to a watch category, so a title
+# like "Bulova Accutron 218" counts even without the word "watch".
+CATEGORY_FILTERED = {"liveauctioneers", "invaluable", "shopgoodwill"}
+
+
 def build(lots: list[Lot], now: int, days: int, include_majors: bool = False) -> list[Lot]:
     horizon = now + days * 86400
     merged: dict[str, Lot] = {}
     for lot in lots:
-        if not lot.title or not is_watch(lot.title):
+        if not lot.title or not is_watch(lot.title, "watches" if lot.source in CATEGORY_FILTERED else ""):
             continue
         if not include_majors and is_major_house(lot.house):
             continue

@@ -37,8 +37,10 @@ main{padding:12px 16px;max-width:1400px;margin:0 auto}
 <input type="search" id="q" placeholder="Search title, house, reference…">
 <select id="brand"><option value="">All brands</option></select>
 <select id="state"><option value="">All states</option></select>
-<select id="house"><option value="">All houses</option></select>
+<select id="house"><option value="">All sellers</option></select>
+<select id="source"><option value="">All sources</option></select>
 <select id="when"><option value="">Any time</option><option value="1">Next 24h</option><option value="3">Next 3 days</option><option value="7">Next 7 days</option></select>
+<label class="m"><input type="checkbox" id="branded"> Known brands only</label>
 <label class="m"><input type="checkbox" id="onlynew"> New since last run</label>
 </div></header>
 <main id="list"></main>
@@ -47,7 +49,7 @@ const LOTS=__DATA__;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function fill(id,vals){const s=$(id);[...new Set(vals.filter(Boolean))].sort().forEach(v=>{const o=document.createElement("option");o.value=o.textContent=v;s.appendChild(o)})}
-fill("brand",LOTS.map(l=>l.brand));fill("state",LOTS.map(l=>l.state));fill("house",LOTS.map(l=>l.house));
+fill("brand",LOTS.map(l=>l.brand));fill("state",LOTS.map(l=>l.state));fill("house",LOTS.map(l=>l.house));fill("source",LOTS.map(l=>l.source));
 const money=(n,c)=>n?new Intl.NumberFormat("en-US",{style:"currency",currency:c||"USD",maximumFractionDigits:0}).format(n):"";
 const when=l=>l.ends_at||l.starts_at;
 const dayLabel=t=>t?new Date(t*1000).toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Date TBA";
@@ -64,16 +66,16 @@ function card(l){
   <div class="m">${verb} ${timeLabel(when(l))}${l.lot_number?` · Lot ${esc(l.lot_number)}`:""} · via ${esc(l.source)}${l.also_on.length?" +"+l.also_on.length:""}</div>
   <div class="p">${bid}${est?`<div class="m">${est}</div>`:""}</div></div></a>`}
 function render(){
-  const q=$("q").value.toLowerCase().trim(),b=$("brand").value,s=$("state").value,h=$("house").value,w=+$("when").value,nw=$("onlynew").checked;
+  const q=$("q").value.toLowerCase().trim(),b=$("brand").value,s=$("state").value,h=$("house").value,w=+$("when").value,nw=$("onlynew").checked,src=$("source").value,br=$("branded").checked;
   const lim=w?Date.now()/1000+w*86400:Infinity;
-  const rows=LOTS.filter(l=>(!b||l.brand===b)&&(!s||l.state===s)&&(!h||l.house===h)&&(!nw||l.is_new)&&(when(l)||0)<=lim&&
+  const rows=LOTS.filter(l=>(!b||l.brand===b)&&(!s||l.state===s)&&(!h||l.house===h)&&(!nw||l.is_new)&&(!src||l.source===src)&&(!br||l.brand)&&(when(l)||0)<=lim&&
     (!q||(l.title+" "+l.house+" "+l.sale_title).toLowerCase().includes(q)));
   $("count").textContent=`${rows.length} lots`;
   if(!rows.length){$("list").innerHTML='<div class="empty">Nothing matches.</div>';return}
   let html="",day=null,open=false;
   for(const l of rows){const d=dayLabel(when(l));if(d!==day){if(open)html+="</div>";html+=`<div class="day">${d}</div><div class="grid">`;day=d;open=true}html+=card(l)}
   $("list").innerHTML=html+"</div>"}
-["q","brand","state","house","when","onlynew"].forEach(id=>$(id).addEventListener("input",render));render();
+["q","brand","state","house","source","when","branded","onlynew"].forEach(id=>$(id).addEventListener("input",render));render();
 </script></body></html>"""
 
 

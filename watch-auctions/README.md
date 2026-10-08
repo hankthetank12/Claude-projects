@@ -1,50 +1,71 @@
 # Watch auctions
 
-One scrolling catalog of upcoming watch lots from small US auction houses:
-the estate-sale houses, regional galleries and one-person auctioneers whose
-catalogs you'd otherwise check one app at a time.
+One scrolling catalog of upcoming watch lots from the small sellers nobody
+sweeps systematically: estate-sale companies, local Goodwill stores,
+Caring Transitions franchises, and small-town auction houses running their
+own bidding sites.
 
 ```
-fetching invaluable…
-  invaluable: 970 lots
-fetching liveauctioneers…
-  liveauctioneers: skipping bulk dealers / majors: Mynt Auctions (6171), Diamond Depot (4990), …
-  liveauctioneers: 2520 lots from 21 of 23 pages
-2251 watch lots from 185 houses (37 new) -> out/index.html
+fetching bidspirit…
+  bidspirit: 475 lots from 46 houses (180 sales scanned)
+fetching auctionninja…
+  auctionninja: 516 lots from 73 companies
+fetching ctbids…
+  ctbids: 248 lots
+fetching shopgoodwill…
+  shopgoodwill: 1279 lots
+2290 watch lots from 268 houses (37 new) -> out/index.html
 ```
+
+In the run above, 90% of the lots came from sellers with no watch lots on
+LiveAuctioneers or Invaluable. Those two marketplaces are where everyone
+already looks.
 
 The output is one self-contained HTML page that works offline and on a phone.
 Lots are grouped by the day they close. You can filter by brand, state,
-house, or "closing in the next 24h / 3 days / 7 days", and you can show only
+seller, or "closing in the next 24h / 3 days / 7 days", and you can show only
 lots that are new since your last run. Every card links straight to the
 lot's bidding page.
 
-## How it reaches the small houses
+## Where it looks
 
-Most small US houses don't run their own bidding software. Their "app" or
-catalog page is a white-label front end for one of a few hosting platforms,
-so we read each platform once instead of scraping hundreds of house sites:
-
-| Platform | How we read it | What we ask for |
+| Source | Who sells there | How we read it |
 |---|---|---|
-| **LiveAuctioneers** | the JSON search endpoint its own pages call | Watches category, US houses, live + timed sales |
-| **Invaluable** | the public search index its site queries | Men's, women's and pocket watch categories, US houses |
+| **Bidspirit** | ~150 small houses (Ohio, Michigan, Carolinas, Florida…) | public JSON catalog of every upcoming US sale |
+| **AuctionNinja** | hundreds of local estate-sale companies | server-rendered search pages |
+| **CTBids** | Caring Transitions estate-sale franchises | the site's public search API |
+| **ShopGoodwill** | ~110 individual Goodwill stores | the site's public search API, Watches category |
+| **AuctionMethod sites** | houses running their *own* bidding site on AuctionMethod | each registered site's JSON API |
+| LiveAuctioneers, Invaluable | the big shared marketplaces | **off by default**; add `--with-marketplaces` |
 
-Each house's catalog on these platforms is the same one that shows on the
-house's own website or app.
+### House sites you add yourself
+
+Many small houses run their own `bid.<house>.com` site on white-label
+software, and those sites have no central directory. You can register any
+house site, and `add-house` will detect what software it runs:
+
+```bash
+PYTHONPATH=src python3 -m watch_auctions add-house bid.gwsauctions.com --name "GWS Auctions" --state CA
+PYTHONPATH=src python3 -m watch_auctions houses
+```
+
+- **AuctionMethod sites** are added to `houses.json` and scraped on every run.
+- **Bidspirit, Invaluable and LiveAuctioneers sites** are already covered by
+  their platform source, and the command tells you so. Many "own" house sites
+  are really white-label front ends of these platforms.
+- **HiBid, Wavebid, Auction Mobility and Bidsquare sites** are detected but
+  not supported yet.
 
 ### What gets filtered out
 
-- **Bulk dealers.** A few LiveAuctioneers sellers run perpetual watch sales
-  with thousands of lots (Mynt, Diamond Depot, Bidhaus…). They're excluded
-  server-side so they don't push the small houses off the results. The
-  cutoff is `--max-house-lots` (default 400 active lots).
-- **Major houses.** Bonhams, Christie's, Sotheby's, Phillips, Heritage,
-  Doyle and similar. Add `--include-majors` to keep them.
-- **Things that aren't watches.** Bands, empty boxes, books, clocks, fobs
-  and parts (see `classify.py`).
-- **Duplicates.** Many houses simulcast on both platforms. The same house,
-  lot number and title becomes one card with a "+1" marker.
+- **Things that aren't watches:** bands, empty boxes, books, clocks, fobs,
+  parts, and jewelry that only mentions a watch brand ("Omega chain").
+- **ShopGoodwill fashion watches.** The full-category sweep only keeps
+  listings already bid to $25 or more (`--min-price`). It also runs keyword
+  sweeps (Rolex, Omega, 14K, automatic, pocket watch…) with no price floor,
+  since good pieces often sit at a low bid until the last day.
+- **Duplicates.** A lot listed in two places becomes one card with a "+1"
+  marker.
 
 ## Run it
 
@@ -52,7 +73,7 @@ Needs Python 3.10+. There are no dependencies.
 
 ```bash
 cd watch-auctions
-PYTHONPATH=src python3 -m watch_auctions fetch      # ~30s, writes out/index.html + out/lots.json
+PYTHONPATH=src python3 -m watch_auctions fetch      # ~5 min, writes out/index.html + out/lots.json
 open out/index.html
 ```
 
@@ -60,9 +81,10 @@ Options:
 
 ```
 --days N              look N days ahead (default 30)
---source NAME         only one platform (repeatable): liveauctioneers, invaluable
---max-house-lots N    bulk-dealer cutoff for LiveAuctioneers (default 400)
---include-majors      keep Bonhams, Christie's, etc.
+--source NAME         only these sources (repeatable)
+--with-marketplaces   also pull LiveAuctioneers and Invaluable
+--min-price N         ShopGoodwill price floor for the category sweep (default 25)
+--include-majors      keep Bonhams, Christie's, etc. (marketplaces only)
 --out DIR             output directory (default out/)
 ```
 
@@ -83,10 +105,13 @@ A source is a module in `src/watch_auctions/sources/` with a
 afterwards in `aggregate.py`, so a source only has to map the platform's
 records onto `Lot`.
 
-The obvious next sources are **HiBid** and **Proxibid**. They host many of
-the smallest Midwest and rural houses, but both refuse requests from the
-cloud environment this was built in, so they aren't wired up yet. They
-should be tested from a home connection.
+Not wired up yet:
+- **HiBid, Proxibid, K-BID and Wavebid.** They host many of the smallest
+  Midwest and rural houses, but they block requests from the cloud
+  environment this was built in (K-BID after a few pages). Try them from a
+  home connection.
+- **Biddergy.** Reachable, but it only had a dozen watch lots, mostly
+  liquidation bundles.
 
 ## Tests
 

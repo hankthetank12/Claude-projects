@@ -33,13 +33,23 @@ _BRAND_RES = [(b, re.compile(r"(?<![a-z])" + re.escape(_fold(b)).replace(r"\ ", 
 WATCH_WORDS = re.compile(
     r"\b(watch|watches|wristwatch|wrist watch|chronograph|chronometer|timepiece|"
     r"submariner|daytona|datejust|speedmaster|seamaster|navitimer|royal oak|nautilus|"
-    r"calatrava|reverso|santos|tank)\b")
+    r"calatrava|reverso|cartier (tank|santos|panthere|ballon bleu))\b")
 # Things that mention watches but are not watches.
 NOT_A_WATCH = re.compile(
     r"\b(watch (band|strap|bracelet only|box|case only|parts?|movement only|stand|winder|fob|chain|key|tool|"
-    r"holder|display|catalog|book)|bands? only|straps? only|empty box|box only|boxes only|"
+    r"holder|display|catalog|books?)|watch related|bands? only|straps? only|empty box|box only|boxes only|"
     r"watch ?winder|display case|book|catalogue|catalog|poster|sign|advert|clock|"
-    r"watchmaker'?s? (tools?|lathe)|crystal only|dial only|bezel only|watch fob)\b")
+    r"watchmaker'?s? (tools?|lathe)|crystal only|dial only|bezel only|watch fob|books?|"
+    r"watch ?charm|toy train|tank car)\b")
+# A brand name alone ("Milor Omega chain") isn't enough when the title is plainly other jewelry.
+# Without the word "watch", a brand name needs watch-like context: a reference
+# number, case metal, movement, size. Keeps "Rolex 16610 steel" and drops an
+# "Omega" designer lamp or Zenith tobacco pipes.
+WATCH_CONTEXT = re.compile(r"\b(ref\.?|reference|\d{3,6}[a-z]{0,4}|automatic|quartz|manual wind|steel|ss|"
+                           r"18k|14k|9k|gold|platinum|titanium|\d{2} ?mm|dial|bezel|chrono\w*|jewels?|"
+                           r"oyster|perpetual|men'?s|ladies'?|women'?s|box (and|&) pap\w*|papers|full set|"
+                           r"big bang|aquanaut|constellation|de ville|diver)\b")
+JEWELRY = re.compile(r"\b(necklace|chain|earrings?|pendant|ring|brooch|cufflinks?|bracelet)\b")
 
 # Big international houses. The point is the long tail, so these are hidden by default.
 MAJOR_HOUSES = re.compile(
@@ -54,7 +64,9 @@ def is_watch(title: str, category: str = "") -> bool:
         return False
     if "watch" in _fold(category) and "clock" not in _fold(category):
         return True
-    return bool(WATCH_WORDS.search(t)) or bool(detect_brand(title) and _strong_brand(title))
+    if WATCH_WORDS.search(t):
+        return True
+    return _strong_brand(title) and bool(WATCH_CONTEXT.search(t)) and not JEWELRY.search(t)
 
 
 def _strong_brand(title: str) -> bool:

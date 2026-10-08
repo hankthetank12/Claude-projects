@@ -19,13 +19,13 @@ _ROWS = [
 def lots(now: int) -> list[Lot]:
     out = []
     for i, (title, house, city, st, d, lo, hi) in enumerate(_ROWS):
-        out.append(Lot(source="liveauctioneers" if i % 2 else "invaluable", source_id=f"demo{i}",
+        out.append(Lot(source=("bidspirit", "shopgoodwill", "ctbids", "auctionninja")[i % 4], source_id=f"demo{i}",
                        title=title, url="https://example.com/lot/demo", house=house, city=city,
                        state=st, lot_number=str(100 + i), sale_type="timed" if i % 3 else "live",
                        starts_at=now + d * 86400 - 3600, ends_at=now + d * 86400,
                        estimate_low=lo, estimate_high=hi, current_bid=lo // 2 if i % 2 else 0,
                        bid_count=3 if i % 2 else 0))
     # The same Kodner lot cross-listed on the other platform.
-    dup = Lot(**{**out[0].to_dict(), "source": "liveauctioneers", "source_id": "demo-dup",
+    dup = Lot(**{**out[0].to_dict(), "source": "auctionninja", "source_id": "demo-dup",
                  "house": "Kodner Galleries Inc."})
     return out + [dup]

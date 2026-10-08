@@ -46,3 +46,26 @@ def test_major_houses():
     assert is_major_house("Christie's")
     assert is_major_house("DOYLE Auctioneers & Appraisers")
     assert not is_major_house("Lark Mountain Auction Company")
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("Milor Italian Sterling Silver Omega Chain Necklace", False),
+    ("American Flyer S gauge 910 Gilbert Chemicals Tank Car", False),
+    ("Lot Of Five (5) Watch Related Books", False),
+    ("Victorian 14K Gold Pendant Watch", True),
+    ("Rolex 1601 Datejust", True),
+    ("Cartier Tank Francaise Ladies 18K Watch", True),
+])
+def test_edge_cases(title, expected):
+    assert is_watch(title) is expected
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("Italian Glass Ceiling lamp 'Omega' by Vico Magistretti", False),
+    ("Assortment of Zenith Holland and Hesson Tobacco Pipes and Humidor Stands", False),
+    ("Rolex 16610 Stainless Steel", True),
+    ("Omega Constellation 18K Gold", True),
+    ("Hublot Big Bang Meca-10 Black Magic, Box & Pap", True),
+])
+def test_brand_needs_watch_context(title, expected):
+    assert is_watch(title) is expected

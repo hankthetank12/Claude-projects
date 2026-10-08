@@ -15,6 +15,10 @@ watch-auctions = "watch_auctions.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The house-site registry ships with the package.
+[tool.setuptools.package-data]
+watch_auctions = ["houses.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

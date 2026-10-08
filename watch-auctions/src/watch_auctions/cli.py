@@ -6,9 +6,9 @@ import sys
 import time
 from pathlib import Path
 
-from watch_auctions import aggregate, render, sample
+from watch_auctions import aggregate, houses, render, sample
 from watch_auctions.models import Lot
-from watch_auctions.sources import SOURCES
+from watch_auctions.sources import DIRECT, MARKETPLACES, SOURCES
 
 
 def _log(*a, **k):
@@ -38,27 +38,49 @@ def main(argv: list[str] | None = None) -> int:
     f = sub.add_parser("fetch", help="pull live catalogs and build the page")
     f.add_argument("--days", type=int, default=30, help="how far ahead to look (default 30)")
     f.add_argument("--source", action="append", choices=sorted(SOURCES), help="limit to these platforms")
+    f.add_argument("--with-marketplaces", action="store_true",
+                   help="also pull LiveAuctioneers and Invaluable (off by default: everyone watches those)")
+    f.add_argument("--min-price", type=float, default=25,
+                   help="ShopGoodwill price floor for the full-category sweep (keyword sweeps ignore it)")
     f.add_argument("--max-pages", type=int, default=60, help="LiveAuctioneers page cap (120 lots/page)")
     f.add_argument("--max-house-lots", type=int, default=400,
                    help="skip LiveAuctioneers sellers with more active watch lots than this (bulk dealers)")
     f.add_argument("--include-majors", action="store_true", help="keep Bonhams, Christie's, etc.")
     f.add_argument("--out", type=Path, default=Path("out"))
+    h = sub.add_parser("add-house", help="register a house's own bidding site (detects its engine)")
+    h.add_argument("url")
+    h.add_argument("--name", default="")
+    h.add_argument("--city", default="")
+    h.add_argument("--state", default="")
+    sub.add_parser("houses", help="list registered house sites")
     d = sub.add_parser("demo", help="build the page from bundled sample lots, no network")
     d.add_argument("--out", type=Path, default=Path("out"))
     a = p.parse_args(argv)
 
     now = int(time.time())
+    if a.cmd == "add-house":
+        entry, status = houses.add(a.url, a.name, a.city, a.state)
+        print(f"{entry['name']} ({entry['url']}): {status}")
+        return 0 if status == "added" or "covered" in status else 1
+    if a.cmd == "houses":
+        for h in houses.load():
+            print(f"{h['name']:<30} {h['engine']:<14} {h['url']}")
+        return 0
     if a.cmd == "demo":
         lots = aggregate.build(sample.lots(now), now, 30)
         _write(a.out, lots)
         return 0
 
     raw: list[Lot] = []
-    for name in a.source or sorted(SOURCES):
+    names = a.source or (list(DIRECT) + (list(MARKETPLACES) if a.with_marketplaces else []))
+    registry = houses.load()
+    for name in names:
         print(f"fetching {name}…")
         try:
-            raw += SOURCES[name].collect(now, a.days, max_pages=a.max_pages,
-                                         max_house_lots=a.max_house_lots, log=_log)
+            opts = {"houses": registry, "min_price": a.min_price, "log": _log}
+            if name == "liveauctioneers":
+                opts.update(max_pages=a.max_pages, max_house_lots=a.max_house_lots)
+            raw += SOURCES[name].collect(now, a.days, **opts)
         except Exception as e:
             print(f"  {name} failed: {e}", file=sys.stderr)
     if not raw:
