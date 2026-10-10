@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from watch_auctions import aggregate, houses, render, sample
+from watch_auctions import aggregate, houses, images, render, sample
 from watch_auctions.models import Lot
 from watch_auctions.sources import DIRECT, MARKETPLACES, SOURCES
 
@@ -15,7 +15,7 @@ def _log(*a, **k):
     print(*a, **k)
 
 
-def _write(out: Path, lots: list[Lot], rejected: list | None = None) -> None:
+def _write(out: Path, lots: list[Lot], rejected: list | None = None, embed_images: bool = True) -> None:
     out.mkdir(parents=True, exist_ok=True)
     prev_path = out / "lots.json"
     seen: set[str] = set()
@@ -32,7 +32,9 @@ def _write(out: Path, lots: list[Lot], rejected: list | None = None) -> None:
         (out / "rejected.json").write_text(json.dumps(
             [{"why": why, "title": l.title, "house": l.house, "source": l.source, "url": l.url}
              for l, why in rejected], indent=1))
-    (out / "index.html").write_text(render.render(lots, new_ids))
+    # Best lots first, so if the size budget runs out it's the weakest that lose embedded photos.
+    photos = images.embed([l.image for l in lots], out / "img-cache") if embed_images else {}
+    (out / "index.html").write_text(render.render(lots, new_ids, images=photos))
     houses = len({l.house for l in lots})
     dropped = f", {len(rejected)} junk lots dropped" if rejected else ""
     print(f"{len(lots)} watch lots from {houses} houses ({len(new_ids)} new{dropped}) -> {out / 'index.html'}")
@@ -77,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "demo":
         rejected: list = []
         lots = aggregate.build(sample.lots(now), now, 30, rejected=rejected)
-        _write(a.out, lots, rejected)
+        _write(a.out, lots, rejected, embed_images=False)
         return 0
 
     raw: list[Lot] = []

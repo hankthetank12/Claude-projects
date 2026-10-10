@@ -87,12 +87,14 @@ function render(){
 </script></body></html>"""
 
 
-def render(lots: list[Lot], new_ids: set[str], generated: datetime | None = None) -> str:
+def render(lots: list[Lot], new_ids: set[str], generated: datetime | None = None,
+           images: dict[str, str] | None = None) -> str:
     generated = generated or datetime.now(timezone.utc)
     rows = []
     for l in lots:
         d = l.to_dict()
         d["is_new"] = f"{l.source}:{l.source_id}" in new_ids
+        d["image"] = (images or {}).get(l.image, l.image)
         rows.append(d)
     data = json.dumps(rows, separators=(",", ":")).replace("</", "<\\/")
     return (_PAGE.replace("__UPDATED__", html.escape(generated.strftime("%b %d, %H:%M UTC")))
