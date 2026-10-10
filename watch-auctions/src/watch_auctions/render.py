@@ -13,9 +13,10 @@ _PAGE = """<!doctype html>
 <title>Watch Auctions</title>
 <style>
 :root{--bg:#f6f5f2;--card:#fff;--ink:#1c1c1c;--mute:#6b6b6b;--line:#e3e1dc;--acc:#1f5f4a;--new:#b4502a}
-@media (prefers-color-scheme:dark){:root{--bg:#141414;--card:#1e1e1e;--ink:#eee;--mute:#9a9a9a;--line:#2e2e2e;--acc:#6fc2a2;--new:#f08b5f}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141414;--card:#1e1e1e;--ink:#eee;--mute:#9a9a9a;--line:#2e2e2e;--acc:#6fc2a2;--new:#f08b5f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141414;--card:#1e1e1e;--ink:#eee;--mute:#9a9a9a;--line:#2e2e2e;--acc:#6fc2a2;--new:#f08b5f;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,sans-serif}
-header{position:sticky;top:0;z-index:2;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 16px}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:2;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 16px}
 h1{font-size:18px;margin:0 0 8px}h1 small{color:var(--mute);font-weight:400;font-size:13px;margin-left:6px}
 .f{display:flex;flex-wrap:wrap;gap:8px}.f input,.f select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
 .f input[type=search]{flex:1 1 220px}.f select{max-width:100%;min-width:0}
